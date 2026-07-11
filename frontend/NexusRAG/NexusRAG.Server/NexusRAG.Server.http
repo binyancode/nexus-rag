@@ -1,0 +1,6 @@
+@NexusRAG.Server_HostAddress = http://localhost:5096
+
+GET {{NexusRAG.Server_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

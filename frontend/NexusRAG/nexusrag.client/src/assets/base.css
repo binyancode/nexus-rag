@@ -1,0 +1,77 @@
+:root {
+  --beone-red: #d52b1e;
+  --beone-oxford-blue: #002147;
+  --beone-midnight-blue: #28334a;
+  --beone-dark-blue: #003a70;
+  --beone-cerulean-blue: #00677f;
+  --beone-autumn-leaf: #e97600;
+  --beone-sunflower: #ffc72c;
+  --beone-greystone: #83786f;
+  --beone-heather-gray: #c4bfb6;
+  --beone-cloud: #d9d8d6;
+  --beone-slate: #97a3ae;
+  --beone-white: #ffffff;
+  --beone-black: #000000;
+
+  --beone-font-family: 'Poppins', 'Microsoft YaHei', 'PingFang SC', 'Segoe UI', Arial, sans-serif;
+  --beone-bg-page: #f4f6f7;
+  --beone-bg-panel: #ffffff;
+  --beone-bg-panel-muted: #f8fafb;
+  --beone-bg-midnight-soft: #eef1f4;
+  --beone-border: #dde3e8;
+  --beone-border-strong: #c4cbd1;
+  --beone-text-primary: var(--beone-midnight-blue);
+  --beone-text-regular: #4f5a6d;
+  --beone-text-secondary: #737f8c;
+  --beone-shadow-panel: 0 12px 28px rgba(40, 51, 74, 0.08);
+
+  /* 科技感深色控制台调色板（运行过程可视化用） */
+  --tech-bg: #0d1a2b;
+  --tech-bg2: #16283f;
+  --tech-panel: rgba(255, 255, 255, 0.045);
+  --tech-panel-2: rgba(255, 255, 255, 0.075);
+  --tech-border: rgba(120, 200, 230, 0.18);
+  --tech-border-strong: rgba(120, 200, 230, 0.4);
+  --tech-cyan: #3bd6ec;
+  --tech-cyan-dim: #2a9fc0;
+  --tech-amber: #ffb347;
+  --tech-green: #35e0a1;
+  --tech-red: #ff6b6b;
+  --tech-text: #dce8f3;
+  --tech-dim: #8ba2b8;
+  --tech-glow: rgba(59, 214, 236, 0.45);
+}
+
+/* 细滚动条 */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--beone-border-strong); border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: var(--beone-slate); }
+::-webkit-scrollbar-track { background: transparent; }
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+body {
+  color: var(--beone-text-primary);
+  background: var(--beone-bg-page);
+  line-height: 1.6;
+  font-family: var(--beone-font-family);
+  font-size: 15px;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}

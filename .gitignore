@@ -1,0 +1,26 @@
+# .NET build artifacts
+[Bb]in/
+[Oo]bj/
+.vs/
+*.user
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.db
+.env
+
+# Node
+node_modules/
+dist/
+dist-ssr/
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+
+# Logs
+*.log

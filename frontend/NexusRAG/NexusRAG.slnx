@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="nexusrag.client/nexusrag.client.esproj">
+    <Build />
+    <Deploy />
+  </Project>
+  <Project Path="NexusRAG.Library/NexusRAG.Library.csproj" />
+  <Project Path="NexusRAG.Server/NexusRAG.Server.csproj" />
+</Solution>
