@@ -7,7 +7,9 @@
         "http://localhost:5173",
         "https://localhost:5173",
         "http://localhost:55876",
-        "https://localhost:55876"
+        "https://localhost:55876",
+        "http://localhost:51807",
+        "https://localhost:51807"
     ],
     "sql_db": {
         "auth_method": "password",
