@@ -406,6 +406,8 @@ DECK = [
      "校验：SetCheck(结果vs应有集合求差找漏项)、ProvenanceCheck(名字在原文字符串匹配,幻觉剔除)、Abstain(分<τ低置信兜底)。不达标可Replan回环。"),
     ("img", "22_algo_llm", D.algo_llm, "ALGORITHM", "LLM 加工算子", 22,
      "LLM算子=固定代码+模板提示词+低温→结构化输出(安全,非任意代码),走Azure OpenAI。Summarize/Extract/Compare/Generate/Judge统一模式；Generate强约束逐条+溯源。"),
+    ("img", "23_graphrag", D.graph_rag, "对照 · CONTRAST", "传统 Graph RAG 原理（对照）", 23,
+     "传统Graph RAG(如MS GraphRAG):建库=文档→切块→LLM抽实体+关系→知识图谱→社区聚类(Leiden)→LLM社区摘要,同时把块与实体描述向量化存入向量库(默认LanceDB);查询=Local(embed问题→向量库召回实体+块→沿图扩展邻居,用向量)或Global(扫社区摘要map-reduce,不查向量)→拼进上下文窗口→LLM作答。所以向量用得不少(建库向量化+Local召回),Global才是纯摘要。特点:检索计划固定(黑箱)、社区摘要压缩出处(溯源较粗)、集合/列全非精确、更新要重跑聚类与摘要。对照本系统:可见算子图SQG+两层图+逐条fullname溯源+集合精确+增量attach_entity+确定性校验;向量是可选入口(精确名可不查向量)。"),
 ]
 
 

@@ -171,9 +171,41 @@ class azure_ai_search_credential(credential):
         return conf
 
 
+class azure_openai_embedding_credential(credential):
+    """Azure OpenAI Embedding 凭据。必填: endpoint, key, deployment。用于块 / 实体名向量化。"""
+
+    display_name: str = "Azure OpenAI Embedding"
+    description: str = "Azure OpenAI 向量模型凭据，用于块向量化、实体名归一召回、语义查询向量化（索引与查询须用同一模型）。"
+    schema: list[dict] = [
+        {"name": "endpoint", "type": "string", "required": True, "sensitive": False, "description": "Azure OpenAI 端点 URL"},
+        {"name": "key", "type": "password", "required": True, "sensitive": True, "description": "API 密钥"},
+        {"name": "deployment", "type": "string", "required": True, "sensitive": False, "description": "Embedding 部署名 / 模型名，如 text-embedding-3-large"},
+        {"name": "api_version", "type": "string", "required": False, "sensitive": False, "description": "API 版本，如 2024-02-01"},
+        {"name": "dimensions", "type": "number", "required": False, "sensitive": False, "description": "输出维度（text-embedding-3 可指定，如 3072）"},
+    ]
+
+    def __init__(self, name: str, credential_type: str, data: dict):
+        super().__init__(name, credential_type, data)
+        missing = [k for k in ("endpoint", "key", "deployment") if not self._data.get(k)]
+        if missing:
+            raise ValueError(f"azure_openai_embedding_credential {name!r} missing required fields: {missing}")
+
+    def to_config(self) -> dict:
+        conf = {
+            "endpoint": self._data["endpoint"],
+            "key": self._data["key"],
+            "deployment": self._data["deployment"],
+        }
+        for key in ("api_version", "dimensions"):
+            if self._data.get(key):
+                conf[key] = self._data[key]
+        return conf
+
+
 # 注册内置凭据类型
 credential.register_type("sql", sql_credential)
 credential.register_type("azure_openai", azure_openai_credential)
+credential.register_type("azure_openai_embedding", azure_openai_embedding_credential)
 credential.register_type("azure_ai_search", azure_ai_search_credential)
 
 

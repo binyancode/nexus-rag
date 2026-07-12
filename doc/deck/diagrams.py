@@ -762,6 +762,105 @@ def index_to_search():
     return svg("".join(o))
 
 
+def graph_rag():
+    o = []
+    GREY = "#8B97A6"
+    # ===== 上半：建库 =====
+    o.append(text(60, 158, "① 建库 · Indexing", 13, NAVY, "800"))
+    steps = [("1", "文档", "PDF / 文本", GREY, None),
+             ("2", "语义切块", "chunks", BLUE, None),
+             ("3", "LLM 抽取", "实体 + 关系", PURPLE, "LLM"),
+             ("4", "向量化 · 存向量库", "实体向量 + 块向量", GREEN, "向量")]
+    sx, sy, sw, sh = 60, 172, 200, 46
+    for i, (n, t, s, c, bdg) in enumerate(steps):
+        yy = sy + i * 54
+        o.append(rect(sx, yy, sw, sh, "#FFFFFF", rx=10, stroke=LINE, sw=1.2))
+        o.append(rect(sx, yy, 5, sh, c, rx=3))
+        o.append(circle(sx + 22, yy + 23, 11, fill=c))
+        o.append(text(sx + 22, yy + 27, n, 11, "#FFFFFF", "800", anchor="middle"))
+        o.append(text(sx + 42, yy + 20, t, 12, INK, "800"))
+        o.append(text(sx + 42, yy + 37, s, 10, MUTE, "600"))
+        if bdg == "LLM":
+            o.append(pill(sx + sw - 50, yy + 13, 42, 19, PURPLE_SOFT, "LLM", 10, PURPLE, "800"))
+        elif bdg == "向量":
+            o.append(pill(sx + sw - 50, yy + 13, 42, 19, GREEN_SOFT, "向量", 10, GREEN, "800"))
+        if i < 3:
+            o.append(arrow(sx + sw / 2, yy + sh + 1, sx + sw / 2, yy + 54 - 1, "#B9C4D0", 2.2))
+    o.append(arrow(sx + sw + 2, 172 + 2 * 54 + sh / 2, 328, 278, "#B9C4D0", 2.2))
+    # 中：知识图谱
+    gx, gy, gw, gh = 330, 172, 430, 210
+    o.append(card(gx, gy, gw, gh, accent=TEAL))
+    o.append(text(gx + 20, gy + 30, "知识图谱 · 社区聚类（Leiden）", 13.5, INK, "800"))
+    blobs = [(gx + 100, gy + 100, 60, 46, BLUE), (gx + 322, gy + 100, 58, 44, TEAL), (gx + 205, gy + 172, 68, 36, ORANGE)]
+    for bx, by2, rx, ry, c in blobs:
+        o.append(f'<ellipse cx="{bx}" cy="{by2}" rx="{rx}" ry="{ry}" fill="{c}" fill-opacity="0.13" '
+                 f'stroke="{c}" stroke-opacity="0.55" stroke-width="1.4" stroke-dasharray="4 3"/>')
+    nodes = [(gx + 74, gy + 84, BLUE), (gx + 128, gy + 82, BLUE), (gx + 102, gy + 124, BLUE),
+             (gx + 298, gy + 84, TEAL), (gx + 348, gy + 86, TEAL), (gx + 322, gy + 124, TEAL),
+             (gx + 178, gy + 166, ORANGE), (gx + 234, gy + 164, ORANGE), (gx + 205, gy + 194, ORANGE)]
+    edges = [(0, 1), (0, 2), (1, 2), (3, 4), (3, 5), (4, 5), (6, 7), (6, 8), (7, 8), (2, 6), (5, 7)]
+    for a, b in edges:
+        o.append(line(nodes[a][0], nodes[a][1], nodes[b][0], nodes[b][1], "#C6D0DC", 1.6))
+    for nx, ny, c in nodes:
+        o.append(f'<circle cx="{nx}" cy="{ny}" r="8" fill="{c}" stroke="#FFFFFF" stroke-width="1.6"/>')
+    o.append(text(gx + 20, gy + gh - 12, "实体=节点，关系=边；聚成 3 个“社区”（颜色区分）。", 10.5, MUTE, "600"))
+    o.append(arrow(gx + gw + 2, gy + gh / 2, 788, gy + gh / 2, "#B9C4D0", 2.2))
+    # 右：社区摘要
+    ux, uw = 790, 430
+    o.append(card(ux, gy, uw, gh, accent=PURPLE))
+    o.append(text(ux + 20, gy + 30, "社区摘要 · Community Summaries", 13.5, INK, "800"))
+    o.append(pill(ux + uw - 58, gy + 16, 48, 20, PURPLE_SOFT, "LLM", 10.5, PURPLE, "800"))
+    for i, (lab, c) in enumerate([("社区A 摘要", BLUE), ("社区B 摘要", TEAL), ("社区C 摘要", ORANGE)]):
+        yy = gy + 52 + i * 50
+        o.append(rect(ux + 18, yy, uw - 38, 42, "#F7F8FC", rx=8, stroke=LINE, sw=1))
+        o.append(rect(ux + 18, yy, 4, 42, c, rx=2))
+        o.append(text(ux + 34, yy + 18, lab, 12, INK, "800"))
+        o.append(rect(ux + 34, yy + 27, uw - 200, 5, "#DCE4EE", rx=2))
+        o.append(rect(ux + uw - 150, yy + 27, 120, 5, "#E6ECF3", rx=2))
+    # ===== 下半：查询 =====
+    o.append(text(60, 404, "② 查询 · Querying", 13, NAVY, "800"))
+    qy, ch = 416, 104
+    o.append(rect(60, qy + 20, 180, 60, "#FFFFFF", rx=10, stroke=LINE, sw=1.2))
+    o.append(rect(60, qy + 20, 5, 60, GREY, rx=3))
+    o.append(text(80, qy + 44, "问题", 13, INK, "800"))
+    o.append(text(80, qy + 64, "用户提问", 10.5, MUTE, "600"))
+    o.append(arrow(242, qy + 50, 268, qy + 50, "#B9C4D0", 2.2))
+    # c2 检索
+    o.append(card(270, qy, 300, ch, accent=TEAL))
+    o.append(text(290, qy + 28, "检索上下文（两种模式）", 13, INK, "800"))
+    o.append(rect(290, qy + 42, 260, 26, BLUE_SOFT, rx=6))
+    o.append(circle(303, qy + 55, 5, fill=GREEN))
+    o.append(text(315, qy + 59, "Local：向量召回 实体+块 → 图扩展", 10.5, NAVY, "700"))
+    o.append(rect(290, qy + 74, 260, 26, ORANGE_SOFT, rx=6))
+    o.append(circle(303, qy + 87, 5, fill=GREY))
+    o.append(text(315, qy + 91, "Global：社区摘要 → map-reduce", 10.5, "#9A5B12", "700"))
+    o.append(arrow(572, qy + ch / 2, 598, qy + ch / 2, "#B9C4D0", 2.2))
+    # c3 拼上下文
+    o.append(rect(600, qy + 20, 180, 60, "#FFFFFF", rx=10, stroke=LINE, sw=1.2))
+    o.append(rect(600, qy + 20, 5, 60, TEAL, rx=3))
+    o.append(text(620, qy + 44, "拼进上下文窗口", 12.5, INK, "800"))
+    o.append(text(620, qy + 64, "子图/摘要/块 → prompt", 10, MUTE, "600"))
+    o.append(arrow(782, qy + 50, 808, qy + 50, "#B9C4D0", 2.2))
+    # c4 LLM
+    o.append(rect(810, qy + 20, 180, 60, "#FFFFFF", rx=10, stroke=LINE, sw=1.2))
+    o.append(rect(810, qy + 20, 5, 60, PURPLE, rx=3))
+    o.append(text(830, qy + 44, "LLM 生成", 13, INK, "800"))
+    o.append(text(830, qy + 64, "读上下文作答", 10.5, MUTE, "600"))
+    o.append(pill(810 + 180 - 52, qy + 24, 44, 20, PURPLE_SOFT, "LLM", 10.5, PURPLE, "800"))
+    o.append(arrow(992, qy + 50, 1018, qy + 50, "#B9C4D0", 2.2))
+    # c5 答案
+    o.append(rect(1020, qy + 20, 180, 60, GREEN_SOFT, rx=10, stroke=GREEN, sw=1.4))
+    o.append(rect(1020, qy + 20, 5, 60, GREEN, rx=3))
+    o.append(text(1040, qy + 44, "答案", 13, INK, "800"))
+    o.append(text(1040, qy + 64, "出处较粗（社区摘要）", 10, "#B06A2C", "700"))
+    # 底部要点
+    ny = qy + ch + 22
+    o.append(rect(60, ny, 1158, 40, "#FFF6EC", rx=10, stroke=ORANGE, sw=1))
+    o.append(text(80, ny + 25, "向量用得不少：建库向量化 + Local 靠向量库召回；Global 靠社区摘要。但检索计划固定（黑箱）· 溯源较粗 · 集合/列全非精确 · 更新要重跑聚类与摘要。",
+                  12, "#8A5A16", "700"))
+    return svg("".join(o))
+
+
 # ============================================================ QUERY PIPELINE
 def query_pipeline():
     o = [cap("查询阶段三段式：大模型只写“想干什么”的算子图(SQG)；优化器绑定成物理算子并优化；执行器在两层图/存储上跑。")]
