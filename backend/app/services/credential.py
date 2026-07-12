@@ -145,9 +145,36 @@ class azure_openai_credential(credential):
         return conf
 
 
+class azure_ai_search_credential(credential):
+    """Azure AI Search 凭据。必填: endpoint, key。"""
+
+    display_name: str = "Azure AI Search"
+    description: str = "Azure AI Search 服务凭据，用于块向量库 / 实体索引的检索与写入。"
+    schema: list[dict] = [
+        {"name": "endpoint", "type": "string", "required": True, "sensitive": False, "description": "搜索服务端点 URL，如 https://xxx.search.windows.net"},
+        {"name": "key", "type": "password", "required": True, "sensitive": True, "description": "管理/查询 API 密钥"},
+        {"name": "index_name", "type": "string", "required": False, "sensitive": False, "description": "默认索引名称"},
+        {"name": "api_version", "type": "string", "required": False, "sensitive": False, "description": "API 版本，如 2024-07-01"},
+    ]
+
+    def __init__(self, name: str, credential_type: str, data: dict):
+        super().__init__(name, credential_type, data)
+        missing = [k for k in ("endpoint", "key") if not self._data.get(k)]
+        if missing:
+            raise ValueError(f"azure_ai_search_credential {name!r} missing required fields: {missing}")
+
+    def to_config(self) -> dict:
+        conf = {"endpoint": self._data["endpoint"], "key": self._data["key"]}
+        for key in ("index_name", "api_version"):
+            if self._data.get(key):
+                conf[key] = self._data[key]
+        return conf
+
+
 # 注册内置凭据类型
 credential.register_type("sql", sql_credential)
 credential.register_type("azure_openai", azure_openai_credential)
+credential.register_type("azure_ai_search", azure_ai_search_credential)
 
 
 # ---------------------------------------------------------------------------

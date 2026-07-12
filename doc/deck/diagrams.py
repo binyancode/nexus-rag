@@ -7,14 +7,14 @@ from slides_lib import (svg, text, rect, line, arrow, circle, pill, wrapw, card,
                         PURPLE, PURPLE_SOFT, RED, LINE, PANEL, MONO, CK, CS, CC, CN, CT, CI, CP)
 
 
-def store_cyl(x, y, w, h, label, sub, color, soft, tlabel=INK, tsub=MUTE):
+def store_cyl(x, y, w, h, label, sub, color, soft, tlabel=INK, tsub=MUTE, lsize=15.5):
     cx, cy = x + 28, y + 30
     o = f'<g filter="url(#sh)">{rect(x, y, w, h, soft, rx=12, stroke=color, sw=1.5)}</g>'
     o += rect(x, y, 6, h, color, rx=3)
     o += rect(cx - 10, cy - 9, 20, 18, color)
     o += f'<ellipse cx="{cx}" cy="{cy + 9}" rx="10" ry="3.8" fill="{color}"/>'
     o += f'<ellipse cx="{cx}" cy="{cy - 9}" rx="10" ry="3.8" fill="#FFFFFF" opacity="0.6"/>'
-    o += text(x + 54, y + 28, label, 15.5, tlabel, "800")
+    o += text(x + 54, y + 28, label, lsize, tlabel, "800")
     o += text(x + 54, y + 50, sub, 12, tsub, "500")
     return o
 
@@ -558,6 +558,207 @@ def index_flow():
     o.append(text(92, ys + 28, "建边只用 LLM", 14, INK, "800"))
     o.append(text(92, ys + 50, "便宜手段只提名候选（保召回），判定权全给 LLM（保精度）；", 12, MUTE, "600"))
     o.append(text(92, ys + 70, "切块产出的块 → 落入“块向量 + 原文”存储。", 12, MUTE, "600"))
+    return svg("".join(o))
+
+
+def entity_onboarding():
+    o = [cap("实体不是一次性批处理：三种来源共用幂等增量算子 attach_entity，只碰新实体邻域，不全量重算。")]
+    # ---- 左：三种来源 ----
+    sx0, sw0 = 70, 210
+    o.append(text(sx0, 178, "三种来源（共用一个算子）", 14, INK, "800"))
+    srcs = [("①  索引时 LLM 抽取", "从块 / 文档名 / 章节名", BLUE, BLUE_SOFT),
+            ("②  事前种子实体", "人工清单先进 catalog", TEAL, TEAL_SOFT),
+            ("③  事后手工新增", "用户随时补一个", ORANGE, ORANGE_SOFT)]
+    for i, (t, s, c, sf) in enumerate(srcs):
+        yy = 196 + i * 74
+        o.append(rect(sx0, yy, sw0, 60, sf, rx=10, stroke=c, sw=1.4))
+        o.append(rect(sx0, yy, 5, 60, c, rx=3))
+        o.append(text(sx0 + 18, yy + 26, t, 12.5, INK, "800"))
+        o.append(text(sx0 + 18, yy + 46, s, 11, MUTE, "600"))
+        o.append(arrow(sx0 + sw0 + 2, yy + 30, 316, 320, MUTE, 2))
+    # ---- 中：attach_entity 三步 ----
+    ax, aw, ay, ah = 320, 360, 178, 300
+    o.append(card(ax, ay, aw, ah, accent=PURPLE))
+    o.append(text(ax + 24, ay + 34, "attach_entity  ·  幂等增量算子", 15, INK, "800"))
+    o.append(line(ax + 22, ay + 48, ax + aw - 22, ay + 48, LINE, 1))
+    steps = [("1", "归一 / 去重", "别名精确 + 名称向量召回 → 合并或新建", TEAL),
+             ("2", "连块 · evidence", "块存储检索 → 确认真正出处（O(邻域)）", GREEN),
+             ("3", "连实体 · 结构边", "邻域共现 → requires / references 等", BLUE)]
+    for i, (n, t, s, c) in enumerate(steps):
+        yy = ay + 64 + i * 74
+        o.append(rect(ax + 22, yy, aw - 44, 62, "#F7F8FC", rx=9, stroke=LINE, sw=1))
+        o.append(circle(ax + 46, yy + 26, 14, fill=c))
+        o.append(text(ax + 46, yy + 32, n, 13, "#FFFFFF", "800", anchor="middle"))
+        o.append(text(ax + 70, yy + 24, t, 13, INK, "800"))
+        o.append(text(ax + 70, yy + 45, s, 10.5, MUTE, "600"))
+        o.append(pill(ax + aw - 104, yy + 17, 82, 26, PURPLE_SOFT, "LLM 裁定", 10.5, PURPLE, "800"))
+    o.append(arrow(ax + aw + 1, ay + 150, 738, ay + 150, MUTE, 2.4))
+    # ---- 右：只碰邻域 ----
+    gx, gw, gy, gh = 740, 470, 178, 300
+    o.append(card(gx, gy, gw, gh, accent=GREEN))
+    o.append(text(gx + 22, gy + 32, "只碰新实体邻域（不全量重算）", 14.5, INK, "800"))
+
+    def dedge(p, q, c, dash=True):
+        d = ' stroke-dasharray="5 4"' if dash else ''
+        return (f'<line x1="{p[0]}" y1="{p[1]}" x2="{q[0]}" y2="{q[1]}" '
+                f'stroke="{c}" stroke-width="2"{d}/>')
+
+    exA = (gx + 95, gy + 130); exB = (gx + 95, gy + 225); blk = (gx + 375, gy + 215); new = (gx + 250, gy + 130)
+    o.append(dedge(exA, exB, "#C9D3DF", dash=False))
+    o.append(dedge(new, exA, BLUE))
+    o.append(dedge(new, blk, GREEN))
+    o.append(node(exA[0] - 44, exA[1] - 17, 88, 34, "已有实体", "#EEF1F5", "#9AA7B4", tsize=11))
+    o.append(node(exB[0] - 44, exB[1] - 17, 88, 34, "已有实体", "#EEF1F5", "#9AA7B4", tsize=11))
+    o.append(rect(blk[0] - 46, blk[1] - 16, 92, 32, "#E3F4EA", rx=6, stroke=GREEN, sw=1.2))
+    o.append(text(blk[0], blk[1] + 5, "原文块", 11.5, GREEN, "800", anchor="middle"))
+    o.append(node(new[0] - 47, new[1] - 19, 94, 38, "新实体", "#FFF1E0", ORANGE, tsize=12.5))
+    o.append(text(gx + 22, gy + gh - 20, "别的节点原样不动，只在新实体周围新增/更新边。", 11, MUTE, "600"))
+    # ---- 底：两张卡 ----
+    by = 498
+    o.append(card(70, by, 575, 150, accent=ORANGE))
+    o.append(text(94, by + 32, "来源与保护", 14.5, INK, "800"))
+    o.append(text(94, by + 62, "· 实体 / 边带 source：seed | manual | llm，locked：bool", 12, MUTE, "600"))
+    o.append(text(94, by + 88, "· 手工关联 locked=true，系统不覆盖、不删", 12, MUTE, "600"))
+    o.append(text(94, by + 114, "· 系统“补充关联” → llm 边进复核队列，确认后落库（手工优先）", 12, MUTE, "600"))
+    o.append(card(665, by, 545, 150, accent=BLUE))
+    o.append(text(689, by + 32, "增量 vs 全量", 14.5, INK, "800"))
+    o.append(text(689, by + 62, "· 加实体 / 加边 → 只跑“连块 + 连实体”，只碰邻域", 12, MUTE, "600"))
+    o.append(text(689, by + 88, "· 文档更新 → 按 content_hash 只重抽变化块，与旧图 diff", 12, MUTE, "600"))
+    o.append(text(689, by + 114, "· 仅数据模型 / 边类型 / 归一策略变了才全量重建", 12, MUTE, "600"))
+    return svg("".join(o))
+
+
+def store_collection():
+    o = [cap("块可分散在多个 AI Search（密钥放凭据）；Collection = store 集合、纯查询期过滤器，一次只选一个、不跨。")]
+    # 左：三个 store
+    o.append(store_cyl(70, 176, 210, 66, "Store S1 · AI Search", "凭据 azure_ai_search", BLUE, BLUE_SOFT, lsize=12.5))
+    o.append(store_cyl(70, 262, 210, 66, "Store S2 · AI Search", "凭据 azure_ai_search", TEAL, TEAL_SOFT, lsize=12.5))
+    o.append(store_cyl(70, 348, 210, 66, "Store S3 · AI Search", "凭据 azure_ai_search", GREEN, GREEN_SOFT, lsize=12.5))
+    # 中：两个 collection + 二部连线（多对多）
+    s1, s2, s3 = (280, 209), (280, 295), (280, 381)
+    aA, aB = (360, 236), (360, 382)
+    o.append(line(s1[0], s1[1], aA[0], aA[1], PURPLE, 2))
+    o.append(line(s2[0], s2[1], aA[0], aA[1], PURPLE, 2))
+    o.append(line(s2[0], s2[1], aB[0], aB[1], ORANGE, 2))
+    o.append(line(s3[0], s3[1], aB[0], aB[1], ORANGE, 2))
+
+    def cchip(x, y, label, c, sf):
+        s = rect(x, y, 158, 44, sf, rx=10, stroke=c, sw=1.6)
+        s += rect(x, y, 5, 44, c, rx=3)
+        s += text(x + 22, y + 28, label, 13.5, INK, "800")
+        return s
+
+    o.append(cchip(360, 214, "Collection α", PURPLE, PURPLE_SOFT))
+    o.append(cchip(360, 360, "Collection β", ORANGE, ORANGE_SOFT))
+    o.append(text(70, 442, "S2 同属 α 和 β —— store ↔ collection 多对多，不物化实体↔collection。", 11.5, MUTE, "600"))
+    # 右：查询面板
+    qx, qy, qw, qh = 560, 176, 650, 260
+    o.append(card(qx, qy, qw, qh, accent=PURPLE))
+    o.append(text(qx + 24, qy + 34, "本次查询：选 Collection α（不跨）", 15, INK, "800"))
+    o.append(pill(qx + 24, qy + 48, 300, 30, PURPLE_SOFT, "allowed_stores = { S1, S2 }", 12.5, PURPLE, "800"))
+    rows = [("Search", "只打 S1 / S2 的 block store", BLUE),
+            ("Traverse / 可见性", "evidence.store_id ∈ {S1,S2} 才可走", TEAL),
+            ("Ground", "只取 store_id ∈ {S1,S2} 的块取原文", GREEN)]
+    for i, (t, s, c) in enumerate(rows):
+        yy = qy + 100 + i * 44
+        o.append(rect(qx + 24, yy, qw - 48, 36, "#F7F8FC", rx=8, stroke=LINE, sw=1))
+        o.append(rect(qx + 24, yy, 4, 36, c, rx=2))
+        o.append(text(qx + 40, yy + 23, t, 12.5, INK, "800"))
+        o.append(text(qx + 210, yy + 23, s, 11.5, MUTE, "600"))
+    o.append(text(qx + 24, qy + qh - 16, "指向 S3 的实体 / 证据 → 本次不查（S3 不在 α 里）。", 12, RED, "700"))
+    # 底：两张卡
+    by = 468
+    o.append(card(70, by, 570, 182, accent=TEAL))
+    o.append(text(94, by + 32, "重排取舍（看 collection 里放几个 store）", 14, INK, "800"))
+    o.append(text(94, by + 64, "· 单 store 的 collection → 只打一个 AI Search，", 12, MUTE, "600"))
+    o.append(text(108, by + 86, "用内置 Semantic Ranker 即可，无跨源重排", 12, MUTE, "600"))
+    o.append(text(94, by + 116, "· 多 store 的 collection → 扇出多 store + 外部 reranker", 12, MUTE, "600"))
+    o.append(text(108, by + 138, "（用户自选分散存储，就自担这个代价）", 12, MUTE, "600"))
+    o.append(card(665, by, 545, 182, accent=ORANGE))
+    o.append(text(689, by + 32, "身份 vs 位置（把会变的留在查询期）", 14, INK, "800"))
+    o.append(text(689, by + 64, "· fullname / block id 纯逻辑、稳定 → 不带 store", 12, MUTE, "600"))
+    o.append(text(689, by + 92, "· 物理归属 = evidence 边上的 store_id 字段", 12, MUTE, "600"))
+    o.append(text(689, by + 120, "· collection 不入任何存下来的 id/字段，只当查询参数", 12, MUTE, "600"))
+    o.append(text(689, by + 148, "· 加/移 store 只改注册表一行，实体/块/边零重算", 12, MUTE, "600"))
+    return svg("".join(o))
+
+
+def index_to_search():
+    o = []
+    CW, ih = 206, 96
+    xs = [60, 298, 536, 774, 1012]
+    badgecol = {"LLM": (PURPLE, PURPLE_SOFT), "向量": (GREEN, GREEN_SOFT), "可选": ("#7B8794", "#EDF0F4")}
+
+    def stepcard(x, y, num, title, sub, accent, kinds):
+        s = card(x, y, CW, ih, accent=accent)
+        s += circle(x + 24, y + 25, 12, fill=accent)
+        s += text(x + 24, y + 29, num, 11.5, "#FFFFFF", "800", anchor="middle")
+        s += text(x + 44, y + 29, title, 12.5, INK, "800")
+        s += text(x + 18, y + 54, sub, 10.5, MUTE, "600")
+        bx = x + 18
+        for k in kinds:
+            col, sf = badgecol[k]
+            s += pill(bx, y + 68, 46, 20, sf, k, 10.5, col, "800")
+            bx += 52
+        return s
+
+    GREY = "#8B97A6"
+    # ---------- 索引 lane ----------
+    iy = 168
+    o.append(text(60, 158, "① 索引阶段 · 离线建库 ▸ 写入三存储", 12.5, NAVY, "800"))
+    idx_cards = [
+        ("1", "原始法规文档", "PDF / 文本", GREY, []),
+        ("2", "语义切块 · fullname", "结构树天然成型", BLUE, ["可选"]),
+        ("3", "抽实体 · 归一去重", "候选提名→裁定", BLUE, ["LLM", "向量"]),
+        ("4", "建边 evidence+结构", "连块 / 连实体", TEAL, ["LLM", "向量"]),
+        ("5", "块向量化", "每块 → 向量", GREEN, ["向量"]),
+    ]
+    for i, (n, t, s, c, k) in enumerate(idx_cards):
+        o.append(stepcard(xs[i], iy, n, t, s, c, k))
+        if i < 4:
+            o.append(arrow(xs[i] + CW + 2, iy + ih / 2, xs[i + 1] - 2, iy + ih / 2, "#B9C4D0", 2.2))
+    # ---------- 三存储 band ----------
+    sy = iy + ih + 46
+    o.append(rect(60, sy, 444, 84, "#EEF3FA", rx=12, stroke=LINE, sw=1))
+    o.append(rect(60, sy, 6, 84, NAVY, rx=3))
+    o.append(text(282, sy + 34, "两层图 · 三存储", 16, NAVY, "800", anchor="middle"))
+    o.append(text(282, sy + 58, "实体层 + 块层，索引写入 / 查询读取", 11.5, MUTE, "600", anchor="middle"))
+    o.append(store_cyl(536, sy, CW, 84, "实体索引", "名称 / 别名", BLUE, BLUE_SOFT, lsize=13.5))
+    o.append(store_cyl(774, sy, CW, 84, "边表 / 图", "requires · evidence", TEAL, TEAL_SOFT, lsize=13.5))
+    o.append(store_cyl(1012, sy, CW, 84, "块向量 + 原文", "向量 · fullname", GREEN, GREEN_SOFT, lsize=13.5))
+    # 写入 down-arrows (cards 3/4/5 → matching store)
+    for i in (2, 3, 4):
+        cx = xs[i] + CW / 2
+        o.append(arrow(cx, iy + ih + 1, cx, sy - 1, "#9FB0C2", 2.4))
+    o.append(text(516, sy - 14, "写入 ↓", 10.5, MUTE, "700", anchor="middle"))
+    # ---------- 查询 lane ----------
+    qy = sy + 84 + 46
+    o.append(text(60, qy - 10, "② 查询阶段 · 在线检索 ▸ 读取三存储", 12.5, NAVY, "800"))
+    q_cards = [
+        ("1", "自然语言问题", "用户问的", GREY, []),
+        ("2", "SQG 编译", "写算子图 op/desc", PURPLE, ["LLM"]),
+        ("3", "优化器", "校验 / 绑定 / 优化", GREY, []),
+        ("4", "执行算子", "Search精确/语义·图·集合", TEAL, ["向量"]),
+        ("5", "回答 · 溯源", "逐条 fullname → 答案", PURPLE, ["LLM"]),
+    ]
+    for i, (n, t, s, c, k) in enumerate(q_cards):
+        o.append(stepcard(xs[i], qy, n, t, s, c, k))
+        if i < 4:
+            o.append(arrow(xs[i] + CW + 2, qy + ih / 2, xs[i + 1] - 2, qy + ih / 2, "#B9C4D0", 2.2))
+    # 读取 up-arrows (三存储 → 执行 card4@774)
+    tgt = [(xs[3] + 44, qy), (xs[3] + CW / 2, qy), (xs[3] + CW - 44, qy)]
+    for i, srcx in enumerate((536 + CW / 2, 774 + CW / 2, 1012 + CW / 2)):
+        o.append(arrow(srcx, sy + 84 + 1, tgt[i][0], tgt[i][1] - 1, "#9FB0C2", 2.2))
+    o.append(text(516, sy + 84 + 22, "读取 ↑", 10.5, MUTE, "700", anchor="middle"))
+    # ---------- 图例 ----------
+    by = qy + ih + 18
+    o.append(rect(60, by, 1158, 40, "#F7FAFD", rx=10, stroke=LINE, sw=1))
+    o.append(circle(84, by + 20, 7, fill=PURPLE))
+    o.append(text(98, by + 25, "LLM：抽实体 · 建边 · 归一裁定 / SQG 编译 / 回答 · 对比 · 汇总", 11.5, INK, "600"))
+    o.append(circle(556, by + 20, 7, fill=GREEN))
+    o.append(text(570, by + 25, "Embedding：块向量化 / 归一召回 / 语义查询", 11, INK, "600"))
+    o.append(circle(900, by + 20, 7, fill=GREY))
+    o.append(text(914, by + 25, "无模型：切块 · 优化器 · 图遍历 · 集合 · 校验 · 溯源", 11, INK, "600"))
     return svg("".join(o))
 
 
