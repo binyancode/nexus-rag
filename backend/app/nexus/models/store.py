@@ -21,4 +21,6 @@ class Collection(BaseModel):
     collection_id: str
     name: str
     description: str | None = None
+    is_public: bool = False
     stores: list[str] = Field(default_factory=list)   # 成员 store_id
+    is_default: bool = False                          # 针对当前查询用户的默认项（读取时填充）

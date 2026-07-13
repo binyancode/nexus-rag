@@ -35,6 +35,17 @@ class document_store:
         doc = self.get(doc_id)
         return bool(doc and doc.content_hash and doc.content_hash == content_hash)
 
+    def list_categories(self, store_ids: list[str]) -> list[str]:
+        """列出当前 Collection 的 Store 中真实存在的文档类别，供查询优化器绑定过滤值。"""
+        if not store_ids:
+            return []
+        ph = ",".join("?" * len(store_ids))
+        rows = self._db.execute_query(
+            f"SELECT DISTINCT category FROM nexus.document WHERE store_id IN ({ph}) AND category IS NOT NULL ORDER BY category",
+            tuple(store_ids),
+        )
+        return [r["category"] for r in rows]
+
     def upsert(self, doc: Document) -> None:
         self._db.execute_non_query(
             """MERGE nexus.document AS t

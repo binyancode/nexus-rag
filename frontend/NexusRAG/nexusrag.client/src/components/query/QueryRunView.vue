@@ -1,0 +1,150 @@
+<template>
+  <div class="run-view">
+    <div class="run-head">
+      <div class="run-identity">
+        <span class="state-dot" :style="{ background: stateColor(run?.state) }"></span>
+        <b>{{ stateLabel(run?.state) }}</b>
+        <span v-if="run?.collection_name" class="meta">Collection：{{ run.collection_name }}</span>
+        <span class="meta">节点 {{ run?.node_count || 0 }}</span>
+      </div>
+      <el-button v-if="run?.state === 'running'" size="small" type="danger" plain @click="cancel">取消</el-button>
+    </div>
+
+    <div class="token-bar" :class="{ 'is-live': run?.state === 'running' }">
+      <div class="token-title"><el-icon><Coin /></el-icon><span>Token 实时消耗</span></div>
+      <span>输入 <b>{{ fmt(tokens.input) }}</b></span>
+      <span v-if="tokens.cached">缓存 <b>{{ fmt(tokens.cached) }}</b></span>
+      <span>输出 <b>{{ fmt(tokens.output) }}</b></span>
+      <span>向量 <b>{{ fmt(tokens.embedding) }}</b></span>
+      <span class="token-total">合计 <b>{{ fmt(tokenTotal) }}</b></span>
+    </div>
+
+    <el-alert v-if="run?.error" :title="run.error" type="error" :closable="false" show-icon />
+
+    <div class="stage-flow-wrap">
+      <div class="stage-flow">
+        <template v-for="(s, index) in stages" :key="s.stage_id">
+          <button class="stage-card" :class="[`stage--${s.state}`, { selected: selectedStageId === s.stage_id }]"
+              type="button" @click="selectSummary(s)">
+            <span class="stage-icon"><el-icon><component :is="stageIcon(s.stage_id)" /></el-icon></span>
+            <span class="stage-body"><b>{{ s.name }}</b><small>{{ stateLabel(s.state) }}</small></span>
+            <span v-if="stageTokenTotal(s)" class="stage-token">{{ fmt(stageTokenTotal(s)) }}</span>
+                <button v-if="s.stage_id === 'generator' && s.output" type="button" class="inside-output"
+                  @click.stop="selectOutput(s)">查看答案</button>
+          </button>
+
+          <div v-if="index < stages.length - 1" class="stage-connector">
+            <span class="connector-line"></span>
+            <button type="button" class="output-chip" :class="{ ready: !!s.output }" :disabled="!s.output"
+                  @click.stop="selectOutput(s)">{{ outputLabel(s.stage_id) }}</button>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <transition name="stage-detail" mode="out-in">
+      <StageSummaryView v-if="selectedStage && detailMode === 'summary'" :key="`${selectedStage.stage_id}-summary`"
+                        :stage="selectedStage" :nodes="nodes" :run-answer="run?.answer" :citations="citations" />
+      <StageOutputView v-else-if="selectedStage" :key="`${selectedStage.stage_id}-output`"
+                       :stage="selectedStage" :nodes="nodes" :run-answer="run?.answer" :citations="citations" />
+      <div v-else key="empty" class="output-placeholder">点击阶段查看摘要；点击阶段之间的输出标签查看产物。</div>
+    </transition>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { ChatDotRound, Coin, Connection, EditPen, MagicStick, Setting } from '@element-plus/icons-vue'
+import { cancelQuery, getQueryRun, type QueryNodeState, type QueryRunInfo, type QueryStageState } from '../../backend/Query.js'
+import StageSummaryView from './StageSummaryView.vue'
+import StageOutputView from './StageOutputView.vue'
+
+const props = defineProps<{ runId: string }>()
+const run = ref<QueryRunInfo | null>(null)
+const nodes = ref<QueryNodeState[]>([])
+const stages = ref<QueryStageState[]>([])
+const selectedStageId = ref<string | null>(null)
+const detailMode = ref<'summary'|'output'>('summary')
+const lastAutoStageId = ref<string | null>(null)
+let timer: number | undefined
+
+const tokens = computed<Record<string,number>>(() => parseJson(run.value?.tokens) || {})
+const tokenTotal = computed(() => (tokens.value.input || 0) + (tokens.value.output || 0) + (tokens.value.embedding || 0))
+const citations = computed(() => parseJson(run.value?.citations) || [])
+const selectedStage = computed(() => stages.value.find(s => s.stage_id === selectedStageId.value) || null)
+
+watch(() => props.runId, start, { immediate: true })
+onBeforeUnmount(stop)
+
+function start() {
+  stop(); run.value=null; nodes.value=[]; stages.value=[]; selectedStageId.value=null
+  detailMode.value='summary'; lastAutoStageId.value=null
+  if (!props.runId) return
+  void poll(); timer=window.setInterval(poll,1200)
+}
+function stop() { if (timer) { window.clearInterval(timer); timer=undefined } }
+async function poll() {
+  try {
+    const data=await getQueryRun(props.runId)
+    run.value=data.run; nodes.value=data.nodes || []; stages.value=data.stages || []
+    const latestOutput=stages.value.filter(s=>!!s.output).sort((a,b)=>b.ordinal-a.ordinal)[0]
+    if (latestOutput && latestOutput.stage_id !== lastAutoStageId.value) {
+      selectedStageId.value=latestOutput.stage_id
+      detailMode.value='output'
+      lastAutoStageId.value=latestOutput.stage_id
+    }
+    if (['succeeded','failed','cancelled'].includes(data.run.state)) stop()
+  } catch { /* run 行可能正在创建，继续轮询 */ }
+}
+function selectOutput(stage: QueryStageState) {
+  if (!stage.output) return
+  selectedStageId.value=stage.stage_id; detailMode.value='output'
+}
+function selectSummary(stage: QueryStageState) { selectedStageId.value=stage.stage_id; detailMode.value='summary' }
+async function cancel() { await cancelQuery(props.runId) }
+function parseJson(raw?: string | null): any { if (!raw) return null; try { return JSON.parse(raw) } catch { return null } }
+function fmt(n?: number) { return (n || 0).toLocaleString('zh-CN') }
+function stageTokenTotal(s: QueryStageState) { const t=parseJson(s.tokens)||{}; return (t.input||0)+(t.output||0)+(t.embedding||0) }
+function stateColor(s?: string | null) { return ({running:'#2f7cb4',succeeded:'#2e9b5b',failed:'#d52b1e',cancelled:'#97a3ae',skipped:'#97a3ae',pending:'#c4cbd1'} as Record<string,string>)[s || ''] || '#c4cbd1' }
+function stateLabel(s?: string | null) { return ({running:'运行中',succeeded:'完成',failed:'失败',cancelled:'已取消',skipped:'已跳过',pending:'等待'} as Record<string,string>)[s || ''] || '准备中' }
+function outputLabel(id: string) { return ({initializer:'QueryContext',compiler:'SQG',optimizer:'PEP',coordinator:'事实 + 依据'} as Record<string,string>)[id] || '输出' }
+function stageIcon(id: string) { return ({initializer:Setting,compiler:EditPen,optimizer:MagicStick,coordinator:Connection,generator:ChatDotRound} as Record<string,any>)[id] || Setting }
+</script>
+
+<style scoped>
+.run-view { display:flex; flex-direction:column; gap:14px; }
+.run-head { display:flex; align-items:center; justify-content:space-between; }
+.run-identity { display:flex; align-items:center; gap:8px; }
+.state-dot { width:9px; height:9px; border-radius:50%; }
+.meta { color:var(--beone-text-secondary); font-size:12px; }
+.token-bar { display:flex; align-items:center; gap:18px; padding:9px 12px; border:1px solid #cfe2f2; border-radius:8px; background:linear-gradient(90deg,#edf6fd,#f3fbfc); color:#536b82; font-size:11px; font-variant-numeric:tabular-nums; }
+.token-title { display:flex; align-items:center; gap:6px; color:#2f7cb4; font-weight:700; }
+.token-bar b { color:#1f3b55; }
+.token-total { margin-left:auto; padding-left:14px; border-left:1px solid #cadde9; }
+.token-bar.is-live .token-title:after { content:''; width:6px; height:6px; border-radius:50%; background:#2e9b5b; animation:pulse 1.2s infinite; }
+@keyframes pulse { 50% { opacity:.35; transform:scale(.75); } }
+.stage-flow-wrap { overflow-x:auto; padding:8px 4px 16px; }
+.stage-flow { width:100%; min-width:1160px; display:flex; align-items:center; }
+.stage-card { position:relative; width:156px; min-height:82px; flex:0 0 156px; display:flex; align-items:center; gap:11px; padding:13px 12px; border:1px solid #d9e4ee; border-radius:13px; background:#fbfcfe; text-align:left; color:inherit; transition:.15s; }
+.stage-card { cursor:pointer; }
+.stage-card.selected { border-color:#2f7cb4; box-shadow:0 0 0 3px rgba(47,124,180,.12); }
+.stage-icon { width:36px; height:36px; flex:0 0 36px; display:grid; place-items:center; border-radius:10px; background:#eef2f6; color:#8291a0; font-size:16px; }
+.stage-body { min-width:0; display:flex; flex-direction:column; gap:3px; }
+.stage-body b { font-size:12px; color:#203246; white-space:nowrap; }
+.stage-body small { font-size:10px; color:#8190a0; }
+.stage-token { position:absolute; right:7px; top:6px; font-size:8px; color:#7b8b9b; }
+.inside-output { position:absolute; left:50%; bottom:-11px; padding:3px 10px; border:1px solid #b9ddc9; border-radius:9px; background:#e7f4ed; color:#2e9b5b; font-size:9px; white-space:nowrap; cursor:pointer; transform:translateX(-50%); }
+.stage--running { border-color:#9bc5e1; background:#f0f8fd; }
+.stage--running .stage-icon { background:#dceefa; color:#2f7cb4; }
+.stage--succeeded .stage-icon { background:#e5f5ec; color:#2e9b5b; }
+.stage--failed .stage-icon { background:#fdeceb; color:#d52b1e; }
+.stage-connector { position:relative; min-width:96px; height:82px; flex:1 1 120px; display:flex; align-items:center; justify-content:center; }
+.connector-line { position:absolute; left:0; right:7px; top:50%; height:2px; background:#d2dce6; transform:translateY(-50%); }
+.stage-connector::after { content:''; position:absolute; right:0; top:50%; width:0; height:0; border-top:5px solid transparent; border-bottom:5px solid transparent; border-left:7px solid #9baaba; transform:translateY(-50%); }
+.output-chip { position:relative; z-index:1; max-width:104px; padding:4px 10px; border:1px solid #d5e0ea; border-radius:11px; background:#fff; color:#8a98a7; font-size:9px; line-height:15px; white-space:nowrap; }
+.output-chip.ready { border-color:#9cc7e2; color:#2f7cb4; cursor:pointer; box-shadow:0 2px 7px rgba(47,124,180,.1); }
+.output-placeholder { min-height:170px; display:flex; align-items:center; justify-content:center; border:1px dashed var(--beone-border); border-radius:10px; color:var(--beone-text-secondary); font-size:12px; }
+.stage-detail-enter-active, .stage-detail-leave-active { transition:opacity .22s ease, transform .22s ease; }
+.stage-detail-enter-from { opacity:0; transform:translateX(14px); }
+.stage-detail-leave-to { opacity:0; transform:translateX(-10px); }
+</style>

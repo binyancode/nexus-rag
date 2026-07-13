@@ -66,22 +66,47 @@ class store_registry:
     # ---------------- Collection ----------------
     def list_collections(self) -> list[Collection]:
         rows = self._db.execute_query(
-            "SELECT collection_id, name, description FROM nexus.collection ORDER BY name"
+            "SELECT collection_id, name, description, is_public FROM nexus.collection ORDER BY name"
         )
-        cols = [Collection(collection_id=r["collection_id"], name=r["name"], description=r.get("description")) for r in rows]
+        cols = [Collection(collection_id=r["collection_id"], name=r["name"],
+                           description=r.get("description"), is_public=bool(r.get("is_public"))) for r in rows]
+        for c in cols:
+            c.stores = self.allowed_stores(c.collection_id)
+        return cols
+
+    def list_visible_collections(self, as_user: str | None) -> list[Collection]:
+        """当前用户可见 Collection：公开项 + 显式 user 授权；同时标记该用户默认项。"""
+        rows = self._db.execute_query(
+            """SELECT DISTINCT c.collection_id, c.name, c.description, c.is_public,
+                      CAST(CASE WHEN d.collection_id IS NULL THEN 0 ELSE 1 END AS bit) AS is_default
+               FROM nexus.collection c
+               LEFT JOIN nexus.collection_access a
+                 ON a.collection_id=c.collection_id AND a.principal_type='user' AND a.principal_id=?
+               LEFT JOIN nexus.collection_access d
+                 ON d.collection_id=c.collection_id AND d.principal_type='user'
+                AND d.principal_id=? AND d.is_default=1
+               WHERE c.is_public=1 OR a.collection_id IS NOT NULL
+               ORDER BY is_default DESC, c.name""",
+            (as_user or "", as_user or ""),
+        )
+        cols = [Collection(
+            collection_id=r["collection_id"], name=r["name"], description=r.get("description"),
+            is_public=bool(r.get("is_public")), is_default=bool(r.get("is_default")),
+        ) for r in rows]
         for c in cols:
             c.stores = self.allowed_stores(c.collection_id)
         return cols
 
     def get_collection(self, collection_id: str) -> Collection | None:
         rows = self._db.execute_query(
-            "SELECT TOP 1 collection_id, name, description FROM nexus.collection WHERE collection_id = ?",
+            "SELECT TOP 1 collection_id, name, description, is_public FROM nexus.collection WHERE collection_id = ?",
             (collection_id,),
         )
         if not rows:
             return None
         r = rows[0]
-        c = Collection(collection_id=r["collection_id"], name=r["name"], description=r.get("description"))
+        c = Collection(collection_id=r["collection_id"], name=r["name"],
+                   description=r.get("description"), is_public=bool(r.get("is_public")))
         c.stores = self.allowed_stores(collection_id)
         return c
 
@@ -89,12 +114,12 @@ class store_registry:
         self._db.execute_non_query(
             """MERGE nexus.collection AS t
                USING (SELECT ? AS collection_id) AS s ON t.collection_id = s.collection_id
-               WHEN MATCHED THEN UPDATE SET name = ?, description = ?, updated_at = SYSUTCDATETIME()
-               WHEN NOT MATCHED THEN INSERT (collection_id, name, description) VALUES (?, ?, ?);""",
+               WHEN MATCHED THEN UPDATE SET name = ?, description = ?, is_public=?, updated_at = SYSUTCDATETIME()
+               WHEN NOT MATCHED THEN INSERT (collection_id, name, description, is_public) VALUES (?, ?, ?, ?);""",
             (
                 collection.collection_id,
-                collection.name, collection.description,
-                collection.collection_id, collection.name, collection.description,
+                collection.name, collection.description, int(collection.is_public),
+                collection.collection_id, collection.name, collection.description, int(collection.is_public),
             ),
         )
         if collection.stores is not None:

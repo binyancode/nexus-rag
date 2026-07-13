@@ -53,6 +53,10 @@
                 "graph.router": {
                     "prefix": "/graph",
                     "tags": ["Graph"]
+                },
+                "query.router": {
+                    "prefix": "/query",
+                    "tags": ["Query"]
                 }
             }
         }

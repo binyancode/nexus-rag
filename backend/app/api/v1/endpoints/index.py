@@ -20,7 +20,7 @@ from fastapi import APIRouter, Request
 from core.api_handler import api_handler
 from services.credential import azure_keyvault_credential_provider
 from nexus.index import run_index, cancel_run
-from nexus.models.store import SearchStore
+from nexus.models.store import Collection, SearchStore
 from nexus.stores.store_registry import store_registry
 
 router = APIRouter()
@@ -122,6 +122,14 @@ async def create_index(request: Request, reg: store_registry = None):
         reg.upsert_store(SearchStore(
             store_id=store_id, name=store_credential, credential_name=store_credential,
             index_name=index_name, kind="block", is_default=(reg.default_store() is None),
+        ))
+    # 系统还没有配置过 Collection 时，创建一个持久化默认范围并纳入所有现有 Store。
+    # 一旦用户已有 Collection，绝不擅自修改其成员关系。
+    if not reg.list_collections():
+        reg.upsert_collection(Collection(
+            collection_id="default", name="默认法规库",
+            description="系统首次启用查询时创建；可在后续管理功能中调整成员 Store",
+            is_public=True, stores=[s.store_id for s in reg.list_stores()],
         ))
 
     identity = getattr(request.state, "identity", None)

@@ -3,8 +3,7 @@
 把系统 DB、凭据提供器注册进全局 IoC 容器；注册 API 日志汇与运行记录器。
 main.py 启动时调用。
 
-说明：检索引擎（Nexus Retrieval Engine）尚未构建，这里只装配通用基础设施。
-引擎就绪后，在 register_services 内追加其门面（如 NexusClient）的注册即可。
+说明：查询引擎的五个阶段由 runner 显式组装；存储等共享服务由此处装配。
 """
 from services.sql_db import sql_db
 from services.credential import azure_keyvault_credential_provider
@@ -72,5 +71,5 @@ def register_services():
 
 
 def register_resolvers():
-    """检索引擎的 Resolver / LLM 注册占位。引擎定型后在此装配。"""
+    """需要全局解析器时在此装配；当前查询客户端按运行凭据即时创建。"""
     pass

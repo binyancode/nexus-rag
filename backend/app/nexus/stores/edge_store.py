@@ -113,6 +113,50 @@ class edge_store:
         )
         return [self._to_evidence(r) for r in rows]
 
+    def list_evidence_for_entities(self, entity_ids: list[str], store_ids: list[str] | None = None) -> list[Evidence]:
+        """批量读取实体出处；store_ids 用于强制 Collection 作用域。"""
+        ids = list(dict.fromkeys(entity_ids))
+        if not ids or store_ids == []:
+            return []
+        result: list[Evidence] = []
+        for i in range(0, len(ids), 700):
+            batch = ids[i:i + 700]
+            ph = ",".join("?" * len(batch))
+            params = list(batch)
+            clause = f"entity_id IN ({ph})"
+            if store_ids is not None:
+                sph = ",".join("?" * len(store_ids))
+                clause += f" AND store_id IN ({sph})"
+                params.extend(store_ids)
+            rows = self._db.execute_query(
+                "SELECT evidence_id, entity_id, fullname, store_id, weight, source, locked "
+                f"FROM nexus.evidence WHERE {clause}", tuple(params),
+            )
+            result.extend(self._to_evidence(r) for r in rows)
+        return result
+
+    def list_evidence_for_fullnames(self, fullnames: list[str], store_ids: list[str] | None = None) -> list[Evidence]:
+        """批量按块 fullname 读取出处边（Lift）。"""
+        names = list(dict.fromkeys(fullnames))
+        if not names or store_ids == []:
+            return []
+        result: list[Evidence] = []
+        for i in range(0, len(names), 700):
+            batch = names[i:i + 700]
+            ph = ",".join("?" * len(batch))
+            params = list(batch)
+            clause = f"fullname IN ({ph})"
+            if store_ids is not None:
+                sph = ",".join("?" * len(store_ids))
+                clause += f" AND store_id IN ({sph})"
+                params.extend(store_ids)
+            rows = self._db.execute_query(
+                "SELECT evidence_id, entity_id, fullname, store_id, weight, source, locked "
+                f"FROM nexus.evidence WHERE {clause}", tuple(params),
+            )
+            result.extend(self._to_evidence(r) for r in rows)
+        return result
+
     def delete_evidence_by_docs(self, prefixes: list[str]) -> int:
         """覆盖：只删本次这几篇文档的出处边（按 fullname 前缀 = 类别.文档.）。
         共享实体/结构边不动，重建时走 upsert 合并。prefixes 里的 _ % [ 会被转义避免误删。"""

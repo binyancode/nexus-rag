@@ -53,14 +53,14 @@ onBeforeUnmount(() => window.clearInterval(timer))
 // 优先显示 BFF 返回的 displayName（nexus.app_user），否则回退到 AAD 账号
 const username = computed(() => authState.displayName || account.value)
 
-// 框架期只留通用入口；检索/运行历史等页面待引擎就绪后逐步接入
-const menuItems = [
+const menuItems = computed(() => [
   { id: 'ask', label: '检索台', icon: 'ChatDotRound' },
   { id: 'index', label: '建立索引', icon: 'UploadFilled' },
   { id: 'graph', label: '知识图谱', icon: 'Share' },
   { id: 'runs', label: '运行历史', icon: 'Histogram' },
+  ...(authState.isAdmin ? [{ id: 'collections', label: 'Collection', icon: 'Files' }] : []),
   { id: 'credentials', label: '凭据', icon: 'Key' },
-]
+])
 
 function openHelp() {
   ElMessage.info('Nexus Retrieval Engine：用自然语言检索法规，逐条给出答案与出处。')
