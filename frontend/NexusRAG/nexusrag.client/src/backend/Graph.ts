@@ -11,6 +11,7 @@ export interface GraphNode {
   origin: string          // seed | manual | llm
   locked: boolean
   aliases: string[]
+  degree?: number
 }
 
 export interface GraphEdge {
@@ -27,6 +28,17 @@ export interface GraphData {
   nodes: GraphNode[]
   edges: GraphEdge[]
   collection: string | null
+}
+
+export interface EntityCatalogData {
+  nodes: GraphNode[]
+  collection: string | null
+}
+
+export interface GraphNeighborhood extends GraphData {
+  expandable: string[]
+  root: string
+  depth: number
 }
 
 export interface EvidenceItem {
@@ -58,6 +70,22 @@ export async function getGraph(collection?: string, type?: string): Promise<Grap
   if (type) q.set('type', type)
   const qs = q.toString()
   const url = await backendUrl('graph' + (qs ? '?' + qs : ''))
+  return service.get(url, true, false)
+}
+
+export async function getEntityCatalog(collection?: string, type?: string): Promise<EntityCatalogData> {
+  const q = new URLSearchParams()
+  if (collection) q.set('collection', collection)
+  if (type) q.set('type', type)
+  const qs = q.toString()
+  const url = await backendUrl('graph/entities' + (qs ? '?' + qs : ''))
+  return service.get(url, true, false)
+}
+
+export async function getGraphNeighborhood(entityId: string, depth = 3): Promise<GraphNeighborhood> {
+  const url = await backendUrl(
+    'graph/neighborhood/' + encodeURIComponent(entityId) + '?depth=' + encodeURIComponent(String(depth)),
+  )
   return service.get(url, true, false)
 }
 

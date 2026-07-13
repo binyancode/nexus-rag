@@ -65,6 +65,19 @@ class entity_store:
         )
         return self._hydrate(rows)
 
+    def list_by_ids(self, entity_ids: list[str]) -> list[Entity]:
+        """按 id 批量读取实体（关系子图按需加载用）。"""
+        ids = list(dict.fromkeys(entity_ids))
+        if not ids:
+            return []
+        ph = ",".join("?" * len(ids))
+        rows = self._db.execute_query(
+            "SELECT entity_id, type, name, status, attrs, source, locked "
+            f"FROM nexus.entity WHERE entity_id IN ({ph})",
+            tuple(ids),
+        )
+        return self._hydrate(rows)
+
     # ---------------- 写 ----------------
     def upsert(self, entity: Entity) -> None:
         attrs_json = json.dumps(entity.attrs, ensure_ascii=False) if entity.attrs is not None else None

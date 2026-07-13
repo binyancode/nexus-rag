@@ -56,6 +56,38 @@ class edge_store:
         )
         return [self._to_edge(r) for r in rows]
 
+    def list_incident(self, entity_ids: list[str]) -> list[Edge]:
+        """返回与任一指定实体相连的结构边（任一端命中；按需展开邻域用）。"""
+        ids = list(dict.fromkeys(entity_ids))
+        if not ids:
+            return []
+        by_id: dict[int, Edge] = {}
+        for i in range(0, len(ids), 900):
+            batch = ids[i:i + 900]
+            ph = ",".join("?" * len(batch))
+            rows = self._db.execute_query(
+                "SELECT edge_id, src_entity_id, type, dst_entity_id, weight, evidence, source, locked "
+                f"FROM nexus.entity_edge WHERE src_entity_id IN ({ph}) OR dst_entity_id IN ({ph})",
+                tuple(batch + batch),
+            )
+            for r in rows:
+                edge = self._to_edge(r)
+                by_id[edge.edge_id] = edge
+        return list(by_id.values())
+
+    def degree_counts(self) -> dict[str, int]:
+        """一次 SQL 聚合每个实体的关联边数（入度+出度），供轻量实体目录显示。"""
+        rows = self._db.execute_query(
+            """SELECT entity_id, COUNT_BIG(*) AS degree
+               FROM (
+                   SELECT src_entity_id AS entity_id FROM nexus.entity_edge
+                   UNION ALL
+                   SELECT dst_entity_id AS entity_id FROM nexus.entity_edge
+               ) d
+               GROUP BY entity_id"""
+        )
+        return {r["entity_id"]: int(r["degree"]) for r in rows}
+
     # ---------------- 出处边 ----------------
     def add_evidence(self, ev: Evidence) -> None:
         self._db.execute_non_query(
