@@ -30,6 +30,7 @@ class QueryContext(BaseModel):
     max_parallel: int = 8
     budgets: QueryBudgets = Field(default_factory=QueryBudgets)
     categories: list[str] = Field(default_factory=list)
+    documents: list[dict[str, Any]] = Field(default_factory=list)
     entity_catalog: list[dict[str, Any]] = Field(default_factory=list)
 
     @property
@@ -76,7 +77,7 @@ class PEPNode(BaseModel):
     id: str
     op: Literal[
         "EntitySearch", "BlockSearch", "Traverse", "Lift", "Ground",
-        "Intersect", "Diff", "Union", "Dedup",
+        "Intersect", "Diff", "Union", "Dedup", "BlockUnion", "EvidenceBundle",
     ]
     name: str
     inputs: dict[str, str] = Field(default_factory=dict)
@@ -112,10 +113,29 @@ class PEP(BaseModel):
 
 
 @dataclass
+class EvidenceGroup:
+    key: str
+    label: str
+    doc_ids: list[str] = field(default_factory=list)
+    items: list[dict[str, Any]] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"key": self.key, "label": self.label, "doc_ids": self.doc_ids, "items": self.items}
+
+    @classmethod
+    def from_value(cls, value: Any) -> "EvidenceGroup":
+        return cls(
+            key=str(value.get("key") or ""), label=str(value.get("label") or ""),
+            doc_ids=list(value.get("doc_ids") or []), items=list(value.get("items") or []),
+        )
+
+
+@dataclass
 class QueryResult:
     """所有物理算子的统一输出；kind 决定 items 的业务类型。"""
-    kind: Literal["entity_set", "block_set", "answer", "empty"]
+    kind: Literal["entity_set", "block_set", "evidence_bundle", "answer", "empty"]
     items: list[dict[str, Any]] = field(default_factory=list)
+    groups: list[EvidenceGroup] = field(default_factory=list)
     answer: str | None = None
     citations: list[dict[str, Any]] = field(default_factory=list)
     meta: dict[str, Any] = field(default_factory=dict)
@@ -124,6 +144,7 @@ class QueryResult:
         return {
             "kind": self.kind,
             "items": self.items,
+            "groups": [x.to_dict() for x in self.groups],
             "answer": self.answer,
             "citations": self.citations,
             "meta": self.meta,
@@ -136,6 +157,7 @@ class QueryResult:
         if isinstance(value, dict) and value.get("kind"):
             return cls(
                 kind=value["kind"], items=value.get("items") or [], answer=value.get("answer"),
+                groups=[EvidenceGroup.from_value(x) for x in (value.get("groups") or [])],
                 citations=value.get("citations") or [], meta=value.get("meta") or {},
             )
         return cls(kind="empty")

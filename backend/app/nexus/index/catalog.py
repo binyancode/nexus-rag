@@ -16,7 +16,7 @@ ENTITY_TYPES: dict[str, str] = {
 
 # 结构边类型（type → 说明）；supersedes 一期可选
 EDGE_TYPES: dict[str, str] = {
-    "requires": "源要求/依赖目标（如某申报类型要求某项材料或审批）",
+    "requires": "源要求/承担/依赖目标（如申报类型→要求，机构→其承担的 Requirement）",
     "belongs_to": "源属于/隶属目标（分类归属，如某法规属于某类别）",
     "references": "源引用/参见目标（条文之间的引用）",
     "supersedes": "源取代/废止目标（新法替代旧法）",

@@ -76,9 +76,14 @@ class block_store:
     # ---------------- 检索 ----------------
     def search(self, store_ids: list[str], query_text: str | None = None,
                query_vector: list[float] | None = None, top: int = 10,
-               category: str | None = None) -> list[Block]:
+               category: str | None = None, doc_ids: list[str] | None = None) -> list[Block]:
         """在给定 store 集合（collection 作用域）内 fan-out 检索并合并。"""
-        odata = f"category eq '{category}'" if category else None
+        filters = []
+        if category:
+            filters.append(f"category eq {_odata_string(category)}")
+        if doc_ids:
+            filters.append("(" + " or ".join(f"doc_id eq {_odata_string(x)}" for x in doc_ids) + ")")
+        odata = " and ".join(filters) if filters else None
         scored: list[tuple[float, Block]] = []
         for sid in store_ids:
             try:
@@ -130,4 +135,10 @@ class block_store:
             ordinal=r.get("ordinal"),
             summary=r.get("summary"),
             keywords=r.get("keywords") or [],
+            score=float(r.get("score")) if r.get("score") is not None else None,
         )
+
+
+def _odata_string(value: str) -> str:
+    """OData 单引号字面量；单引号以两个单引号转义。"""
+    return "'" + value.replace("'", "''") + "'"

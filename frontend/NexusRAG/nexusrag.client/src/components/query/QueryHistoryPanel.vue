@@ -4,7 +4,7 @@
       <div><b>查询历史</b><span>{{ filtered.length }}</span></div>
       <el-button link :loading="loading" @click="load">刷新</el-button>
     </div>
-    <el-input v-model="keyword" size="small" clearable placeholder="搜索历史问题" class="history-search" />
+    <el-input v-model="keyword" size="small" clearable placeholder="模糊搜索问题，或输入完整 Run ID" class="history-search" />
     <div class="history-list">
       <button v-for="item in filtered" :key="item.run_id" type="button" class="history-item"
               :class="{ selected:item.run_id===selectedRunId }" @click="$emit('select',item)">
@@ -26,7 +26,14 @@ import { listQueryRuns, type QueryRunListItem } from '../../backend/Query.js'
 defineProps<{ selectedRunId?:string }>()
 defineEmits<{(e:'select',run:QueryRunListItem):void}>()
 const items=ref<QueryRunListItem[]>([]),loading=ref(false),keyword=ref('')
-const filtered=computed(()=>{const q=keyword.value.trim().toLocaleLowerCase();return items.value.filter(x=>!q||(x.question||'').toLocaleLowerCase().includes(q)||(x.answer||'').toLocaleLowerCase().includes(q))})
+const filtered=computed(()=>{
+  const raw=keyword.value.trim()
+  if(!raw)return items.value
+  const exact=items.value.filter(x=>x.run_id===raw)
+  if(exact.length)return exact
+  const q=raw.toLocaleLowerCase()
+  return items.value.filter(x=>(x.question||'').toLocaleLowerCase().includes(q)||(x.answer||'').toLocaleLowerCase().includes(q))
+})
 onMounted(load)
 defineExpose({ reload:load })
 async function load(){loading.value=true;try{items.value=await listQueryRuns()}catch{ElMessage.error('加载查询历史失败')}finally{loading.value=false}}

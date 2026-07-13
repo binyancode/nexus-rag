@@ -9,7 +9,7 @@ from utils.logger import get_logger
 from ..llm.resolve import make_chat, make_embedder
 from .compiler import SQGCompiler
 from .coordinator import QueryCoordinator
-from .generator import AnswerGenerator
+from .generator import AnswerGenerationError, AnswerGenerator
 from .initializer import QueryInitializer
 from .models import QueryBudgets
 from .optimizer import PEPOptimizationError, QueryOptimizer
@@ -126,7 +126,12 @@ def run_query(run_id: str, question: str, llm_credential: str, embedding_credent
                 recorder.bump_tokens(run_id, outstanding_tokens)
         except Exception:  # noqa: BLE001
             pass
-        failed_output = exc.raw_pep if isinstance(exc, PEPOptimizationError) else None
+        if isinstance(exc, PEPOptimizationError):
+            failed_output = exc.raw_pep
+        elif isinstance(exc, AnswerGenerationError):
+            failed_output = exc.raw_output
+        else:
+            failed_output = None
         recorder.fail_stage(
             run_id, current_stage, str(exc), _ms(stage_started), token.is_cancelled,
             output_value=failed_output,

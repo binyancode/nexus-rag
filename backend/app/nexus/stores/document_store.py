@@ -46,6 +46,22 @@ class document_store:
         )
         return [r["category"] for r in rows]
 
+    def list_documents(self, store_ids: list[str]) -> list[Document]:
+        """列出当前 Collection 可见 Store 中的真实文档目录，供编译器/优化器绑定 doc_id。"""
+        if not store_ids:
+            return []
+        ph = ",".join("?" * len(store_ids))
+        rows = self._db.execute_query(
+            "SELECT doc_id,title,category,store_id,content_hash,source_uri,block_count "
+            f"FROM nexus.document WHERE store_id IN ({ph}) ORDER BY title,doc_id",
+            tuple(store_ids),
+        )
+        return [Document(
+            doc_id=r["doc_id"], title=r.get("title"), category=r.get("category"),
+            store_id=r["store_id"], content_hash=r.get("content_hash"),
+            source_uri=r.get("source_uri"), block_count=r.get("block_count") or 0,
+        ) for r in rows]
+
     def upsert(self, doc: Document) -> None:
         self._db.execute_non_query(
             """MERGE nexus.document AS t

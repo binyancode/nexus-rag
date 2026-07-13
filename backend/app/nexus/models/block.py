@@ -19,3 +19,4 @@ class Block(BaseModel):
     keywords: list[str] = Field(default_factory=list)
     vector: list[float] | None = None                # 嵌入向量
     store_id: str | None = None                      # 写入的块存储
+    score: float | None = None                       # 查询期相关性分数（不写入索引）

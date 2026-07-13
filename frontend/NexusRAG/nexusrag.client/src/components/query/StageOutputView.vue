@@ -24,12 +24,23 @@
         <span>最多 Token <b>{{ (output.budgets?.max_tokens || 0).toLocaleString('zh-CN') }}</b></span>
       </div></section>
       <section><h4>可用文档类别</h4><div class="tags"><el-tag v-for="c in output.categories || []" :key="c" type="warning" effect="light">{{ c }}</el-tag></div></section>
+      <section><h4>可见文档（{{ output.documents?.length || 0 }}）</h4><div class="document-list">
+        <div v-for="d in output.documents || []" :key="d.doc_id"><b>{{ d.title || d.doc_id }}</b><small>{{ d.category }} · {{ d.doc_id }} · {{ d.block_count }} 块</small></div>
+      </div></section>
       <section><h4>可见实体类型</h4><div class="tags"><el-tag v-for="x in entityTypeCounts" :key="x.type" type="info" effect="light">{{ x.type }} · {{ x.count }}</el-tag></div></section>
     </div>
 
     <div v-else-if="stage?.stage_id === 'coordinator'" class="coordinator-view">
-      <div class="metrics"><div><b>{{ facts.length }}</b><span>事实项</span></div><div><b>{{ evidence.length }}</b><span>依据块</span></div></div>
-      <div class="result-columns">
+      <div class="metrics"><div><b>{{ facts.length }}</b><span>事实项</span></div><div><b>{{ evidence.length }}</b><span>依据块</span></div><div v-if="evidenceGroups.length"><b>{{ evidenceGroups.length }}</b><span>文档分组</span></div></div>
+      <div v-if="evidenceGroups.length" class="evidence-groups">
+        <section v-for="group in evidenceGroups" :key="group.key" class="evidence-group">
+          <h4>{{ group.label }} <el-tag size="small" effect="plain">{{ group.items?.length || 0 }} 条</el-tag></h4>
+          <div class="result-list"><div v-for="(b,i) in group.items || []" :key="b.fullname || i" class="evidence-item">
+            <b>{{ b.title || b.fullname }}</b><small>{{ b.section }} · {{ b.fullname }}</small><p>{{ snippet(b.text) }}</p>
+          </div></div>
+        </section>
+      </div>
+      <div v-else class="result-columns">
         <section><h4>结构化事实</h4><div v-if="!facts.length" class="empty">没有事实结果</div>
           <div class="result-list"><div v-for="(f,i) in facts" :key="f.entity_id || f.fullname || i" class="fact-item">
             <el-tag v-if="f.type" size="small" effect="plain">{{ f.type }}</el-tag><b>{{ f.name || f.title || f.fullname || '未命名结果' }}</b>
@@ -57,6 +68,7 @@ const output=computed<any>(()=>parse(props.stage?.output)||{})
 const outputTitle=computed(()=>({initializer:'QueryContext',compiler:'SQG · 业务意图图',optimizer:'PEP · 物理执行图',coordinator:'事实与原文依据',generator:'最终答案'} as Record<string,string>)[props.stage?.stage_id||'']||'阶段输出')
 const facts=computed<any[]>(()=>output.value.facts?.items||[])
 const evidence=computed<any[]>(()=>output.value.evidence?.items||[])
+const evidenceGroups=computed<any[]>(()=>output.value.evidence?.groups||output.value.facts?.groups||[])
 const entityTypeCounts=computed(()=>{const c:Record<string,number>={};for(const x of output.value.entity_catalog||[])c[x.type]=(c[x.type]||0)+1;return Object.entries(c).map(([type,count])=>({type,count})).sort((a,b)=>b.count-a.count)})
 function parse(raw?:string|null):any{if(!raw)return null;try{return JSON.parse(raw)}catch{return null}}
 function formatCost(ms:number){return ms<1000?`${ms}ms`:`${(ms/1000).toFixed(1)}s`}
@@ -66,6 +78,6 @@ function snippet(s?:string){if(!s)return '—';return s.length>150?s.slice(0,150
 
 <style scoped>
 .output-view{padding:16px;border:1px solid var(--beone-border);border-radius:11px;background:#fff}.output-head{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px}.output-head span{color:var(--beone-text-secondary);font-size:10px}.output-head h3{margin:2px 0 0;font-size:15px;color:var(--beone-midnight-blue)}.cost{padding:3px 7px;border-radius:5px;background:var(--beone-bg-panel)}
-.context-question{display:flex;flex-direction:column;gap:4px;padding:12px;border-radius:9px;background:#edf6fd}.context-question span,.context-grid span{color:var(--beone-text-secondary);font-size:9px}.context-question b{font-size:13px}.context-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:9px}.context-grid>div{display:flex;flex-direction:column;gap:3px;padding:10px;border-radius:8px;background:#f5f7fa}.context-grid b{font-size:13px}.output-view section{margin-top:14px}.output-view h4{margin:0 0 7px;font-size:11px;color:var(--beone-midnight-blue)}.tags{display:flex;flex-wrap:wrap;gap:6px}.budget-list{display:flex;gap:9px}.budget-list span{padding:7px 10px;border-radius:7px;background:#f5f7fa;color:var(--beone-text-secondary);font-size:10px}.budget-list b{color:#263b51}
-.metrics{display:flex;gap:9px}.metrics>div{min-width:115px;padding:12px;border-radius:9px;background:#edf6fd}.metrics b{display:block;color:#2f7cb4;font-size:22px}.metrics span{font-size:10px;color:var(--beone-text-secondary)}.result-columns{display:grid;grid-template-columns:1fr 1.2fr;gap:12px}.result-list{max-height:360px;overflow:auto}.fact-item,.evidence-item{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px;border-bottom:1px solid #edf0f3}.fact-item b,.evidence-item b{font-size:11px}.fact-item small,.evidence-item small{width:100%;color:var(--beone-text-secondary);font-size:9px;word-break:break-all}.evidence-item p{margin:0;color:#52677d;font-size:10px;line-height:1.5}.empty{padding:16px;color:var(--beone-text-secondary);font-size:10px;text-align:center}
+.context-question{display:flex;flex-direction:column;gap:4px;padding:12px;border-radius:9px;background:#edf6fd}.context-question span,.context-grid span{color:var(--beone-text-secondary);font-size:9px}.context-question b{font-size:13px}.context-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:9px}.context-grid>div{display:flex;flex-direction:column;gap:3px;padding:10px;border-radius:8px;background:#f5f7fa}.context-grid b{font-size:13px}.output-view section{margin-top:14px}.output-view h4{margin:0 0 7px;font-size:11px;color:var(--beone-midnight-blue)}.tags{display:flex;flex-wrap:wrap;gap:6px}.budget-list{display:flex;gap:9px}.budget-list span{padding:7px 10px;border-radius:7px;background:#f5f7fa;color:var(--beone-text-secondary);font-size:10px}.budget-list b{color:#263b51}.document-list{display:grid;grid-template-columns:1fr 1fr;gap:6px}.document-list>div{display:flex;flex-direction:column;gap:2px;padding:8px;border-radius:7px;background:#f5f7fa}.document-list b{font-size:10px}.document-list small{color:var(--beone-text-secondary);font-size:8px;word-break:break-all}
+.metrics{display:flex;gap:9px}.metrics>div{min-width:115px;padding:12px;border-radius:9px;background:#edf6fd}.metrics b{display:block;color:#2f7cb4;font-size:22px}.metrics span{font-size:10px;color:var(--beone-text-secondary)}.result-columns{display:grid;grid-template-columns:1fr 1.2fr;gap:12px}.evidence-groups{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}.evidence-group{padding:11px;border:1px solid #dce6ef;border-radius:9px;background:#fafcfe}.evidence-group h4{display:flex;align-items:center;justify-content:space-between}.result-list{max-height:360px;overflow:auto}.fact-item,.evidence-item{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px;border-bottom:1px solid #edf0f3}.fact-item b,.evidence-item b{font-size:11px}.fact-item small,.evidence-item small{width:100%;color:var(--beone-text-secondary);font-size:9px;word-break:break-all}.evidence-item p{margin:0;color:#52677d;font-size:10px;line-height:1.5}.empty{padding:16px;color:var(--beone-text-secondary);font-size:10px;text-align:center}
 </style>

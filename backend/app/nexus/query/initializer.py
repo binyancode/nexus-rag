@@ -51,6 +51,7 @@ class QueryInitializer:
             raise ValueError(f"Collection {selected.collection_id!r} 没有可用 Store")
 
         visible = services[entity_store].list(store_ids=allowed_stores)
+        documents = services[document_store].list_documents(allowed_stores)
         catalog = [
             {"entity_id": e.entity_id, "type": e.type, "name": e.name, "aliases": e.aliases}
             for e in visible
@@ -70,6 +71,7 @@ class QueryInitializer:
             max_parallel=max(1, min(64, int(max_parallel or 8))),
             budgets=budgets or QueryBudgets(),
             categories=services[document_store].list_categories(allowed_stores),
+            documents=[d.model_dump(include={"doc_id", "title", "category", "store_id", "block_count"}) for d in documents],
             entity_catalog=catalog,
         )
 

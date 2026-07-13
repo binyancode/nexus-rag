@@ -4,6 +4,10 @@
       <div class="run-identity">
         <span class="state-dot" :style="{ background: stateColor(run?.state) }"></span>
         <b>{{ stateLabel(run?.state) }}</b>
+        <button v-if="run?.run_id" type="button" class="run-id" :title="run.run_id" @click="copyRunId">
+          Run ID · {{ shortRunId }}
+          <el-icon><CopyDocument /></el-icon>
+        </button>
         <span v-if="run?.collection_name" class="meta">Collection：{{ run.collection_name }}</span>
         <span class="meta">节点 {{ run?.node_count || 0 }}</span>
       </div>
@@ -54,7 +58,8 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { ChatDotRound, Coin, Connection, EditPen, MagicStick, Setting } from '@element-plus/icons-vue'
+import { ChatDotRound, Coin, Connection, CopyDocument, EditPen, MagicStick, Setting } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import { cancelQuery, getQueryRun, type QueryNodeState, type QueryRunInfo, type QueryStageState } from '../../backend/Query.js'
 import StageSummaryView from './StageSummaryView.vue'
 import StageOutputView from './StageOutputView.vue'
@@ -72,6 +77,7 @@ const tokens = computed<Record<string,number>>(() => parseJson(run.value?.tokens
 const tokenTotal = computed(() => (tokens.value.input || 0) + (tokens.value.output || 0) + (tokens.value.embedding || 0))
 const citations = computed(() => parseJson(run.value?.citations) || [])
 const selectedStage = computed(() => stages.value.find(s => s.stage_id === selectedStageId.value) || null)
+const shortRunId = computed(() => run.value?.run_id ? `${run.value.run_id.slice(0,8)}…` : '')
 
 watch(() => props.runId, start, { immediate: true })
 onBeforeUnmount(stop)
@@ -102,6 +108,11 @@ function selectOutput(stage: QueryStageState) {
 }
 function selectSummary(stage: QueryStageState) { selectedStageId.value=stage.stage_id; detailMode.value='summary' }
 async function cancel() { await cancelQuery(props.runId) }
+async function copyRunId() {
+  if (!run.value?.run_id) return
+  await navigator.clipboard.writeText(run.value.run_id)
+  ElMessage.success('Run ID 已复制')
+}
 function parseJson(raw?: string | null): any { if (!raw) return null; try { return JSON.parse(raw) } catch { return null } }
 function fmt(n?: number) { return (n || 0).toLocaleString('zh-CN') }
 function stageTokenTotal(s: QueryStageState) { const t=parseJson(s.tokens)||{}; return (t.input||0)+(t.output||0)+(t.embedding||0) }
@@ -117,6 +128,8 @@ function stageIcon(id: string) { return ({initializer:Setting,compiler:EditPen,o
 .run-identity { display:flex; align-items:center; gap:8px; }
 .state-dot { width:9px; height:9px; border-radius:50%; }
 .meta { color:var(--beone-text-secondary); font-size:12px; }
+.run-id { display:inline-flex; align-items:center; gap:4px; padding:3px 7px; border:1px solid #d6e1eb; border-radius:6px; background:#f7f9fc; color:#60758a; font-size:9px; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; cursor:pointer; }
+.run-id:hover { border-color:#82b8d9; background:#edf6fd; color:#2f7cb4; }
 .token-bar { display:flex; align-items:center; gap:18px; padding:9px 12px; border:1px solid #cfe2f2; border-radius:8px; background:linear-gradient(90deg,#edf6fd,#f3fbfc); color:#536b82; font-size:11px; font-variant-numeric:tabular-nums; }
 .token-title { display:flex; align-items:center; gap:6px; color:#2f7cb4; font-weight:700; }
 .token-bar b { color:#1f3b55; }

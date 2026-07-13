@@ -66,6 +66,7 @@ const facts = computed(() => {
       {label:'Collection',value:o.collection?.name || '—'},
       {label:'选择方式',value:selectionLabel(o.collection?.selected_by)},
       {label:'可用 Store',value:String(o.collection?.allowed_stores?.length || 0)},
+      {label:'可见文档',value:String(o.documents?.length || 0)},
       {label:'可见实体',value:String(o.entity_catalog?.length || 0)},
     ]
     case 'compiler': return [
