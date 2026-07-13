@@ -3,7 +3,7 @@
     <div class="idx-head">
       <div>
         <h1>建立索引</h1>
-        <p>上传法规原文（.txt），切块入库并抽取实体关系。索引在后台运行，下方实时显示进度。</p>
+        <p>上传该 Store 的完整法规集合，构建、校验通过后一次替换当前活动索引。失败或取消不会影响现有索引。</p>
       </div>
     </div>
 
@@ -23,6 +23,21 @@
           <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
           <div class="el-upload__text">拖拽 .txt 到此，或<em>点击选择</em></div>
         </el-upload>
+        <div v-if="files.length" class="file-categories">
+          <div v-for="file in files" :key="file.filename" class="file-category-row">
+            <span :title="file.filename">{{ file.filename }}</span>
+            <el-select
+              v-model="file.category"
+              filterable
+              allow-create
+              default-first-option
+              placeholder="文档类别"
+              style="width:150px"
+            >
+              <el-option v-for="c in categoryOptions" :key="c" :value="c" :label="c" />
+            </el-select>
+          </div>
+        </div>
 
         <div class="sec-t">凭据</div>
         <div class="fld">
@@ -62,7 +77,7 @@
 
         <div class="sec-t">索引选项</div>
         <div class="fld">
-          <label>类别（进入 fullname）<span class="req">*</span></label>
+          <label>默认类别<span class="req">*</span></label>
           <el-select
             v-model="form.category"
             filterable
@@ -73,26 +88,11 @@
           >
             <el-option v-for="c in categoryOptions" :key="c" :value="c" :label="c" />
           </el-select>
+          <div class="hint">新增文件默认使用此类别；可在文件列表中逐份调整。</div>
         </div>
-        <div class="fld fld-row">
-          <label>实体入网</label>
-          <el-switch
-            v-model="form.auto_attach"
-            active-text="自动归一"
-            inactive-text="仅新建"
-            inline-prompt
-          />
-          <span class="hint">自动：用大模型判断是否与已有实体是同一概念并复用；仅新建：直接建新节点。</span>
-        </div>
-        <div class="fld fld-row">
-          <label>覆盖重建</label>
-          <el-switch
-            v-model="form.overwrite"
-            active-text="覆盖"
-            inactive-text="增量"
-            inline-prompt
-          />
-          <span class="hint">覆盖：对本次上传的文档，先删掉它们的旧块与旧出处，再重新索引（共享的实体/关系走合并、不清空）；增量：跳过未变更的文档。</span>
+        <div class="fld generation-note">
+          <b>完整代次构建</b>
+          <span>本次文件组成新的完整 Store 内容；质量门禁通过后才原子发布。</span>
         </div>
         <div class="fld">
           <label>并行度（DAG 同时执行的节点数）</label>
@@ -136,7 +136,7 @@ const searchCreds = computed(() => creds.value.filter(c => c.credential_type ===
 
 const form = reactive({
   llm_credential: '', embedding_credential: '', store_credential: '',
-  index_name: '', category: '', auto_attach: true, max_parallel: 8, overwrite: false,
+  index_name: '', category: '', max_parallel: 8,
 })
 
 const fileList = ref<any[]>([])
@@ -150,7 +150,8 @@ const runId = ref('')
 
 const canSubmit = computed(() =>
   files.value.length > 0 && form.llm_credential && form.embedding_credential &&
-  form.store_credential && form.index_name.trim().length > 0 && form.category.trim().length > 0,
+  form.store_credential && form.index_name.trim().length > 0 && form.category.trim().length > 0 &&
+  files.value.every(file => String(file.category || form.category).trim().length > 0),
 )
 
 onMounted(async () => {
@@ -182,8 +183,8 @@ function onFileChange(file: any) {
   reader.onload = () => {
     const text = String(reader.result ?? '')
     const existing = files.value.findIndex(f => f.filename === file.name)
-    if (existing >= 0) files.value[existing] = { filename: file.name, text }
-    else files.value.push({ filename: file.name, text })
+    if (existing >= 0) files.value[existing] = { ...files.value[existing], filename: file.name, text }
+    else files.value.push({ filename: file.name, text, category: form.category })
   }
   reader.readAsText(file.raw, 'UTF-8')
   fileList.value = fileList.value.filter(f => f.uid !== file.uid).concat(file)
@@ -203,9 +204,7 @@ async function submit() {
       store_credential: form.store_credential,
       index_name: form.index_name || undefined,
       category: form.category.trim(),
-      auto_attach: form.auto_attach,
       max_parallel: form.max_parallel,
-      overwrite: form.overwrite,
     })
     runId.value = res.run_id
     ElMessage.success('索引任务已提交')
@@ -239,6 +238,11 @@ async function submit() {
 .fld-row > label { margin-bottom: 0; }
 .req { color: var(--beone-autumn-leaf, #d97706); margin-left: 2px; }
 .hint { font-size: 12px; color: var(--beone-text-secondary); }
+.file-categories { margin: 10px 0 14px; display: flex; flex-direction: column; gap: 8px; }
+.file-category-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.file-category-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.generation-note { padding: 10px 12px; border-radius: 8px; background: #f5f8fc; display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--beone-text-secondary); }
+.generation-note b { color: var(--beone-midnight-blue); }
 .idx-actions { margin-top: 16px; }
 
 /* ---- 运行进度 ---- */

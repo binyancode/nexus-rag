@@ -1,10 +1,11 @@
 import { service } from '../common/APIService.js'
 import { backendUrl } from '../bff/Config.js'
 
-// 两层图浏览与手工维护。均走 Python 后端（unwrap=false）。
+// Assertion-supported entity/action graph. All calls carry one Collection scope.
 
 export interface GraphNode {
   id: string
+  kind: 'entity' | 'action'
   type: string
   name: string
   status: string | null
@@ -15,19 +16,23 @@ export interface GraphNode {
 }
 
 export interface GraphEdge {
-  id: number | null
+  id: number
   source: string
+  source_kind: 'entity' | 'action'
   target: string
+  target_kind: 'entity' | 'action'
   type: string
   weight: number
   origin: string
   locked?: boolean
+  assertion_ids: string[]
 }
 
 export interface GraphData {
   nodes: GraphNode[]
   edges: GraphEdge[]
   collection: string | null
+  generation_scope?: Record<string, string>
 }
 
 export interface EntityCatalogData {
@@ -41,25 +46,44 @@ export interface GraphNeighborhood extends GraphData {
   depth: number
 }
 
-export interface EvidenceItem {
-  fullname: string
+export interface AssertionSupportItem {
+  edge_id: number
   store_id: string
-  weight: number
-  origin: string
+  generation_id: string
+  assertion_id: string
+  assertion_kind: string
+  predicate: string
+  modality: string
+  condition: string | null
+  exception: string | null
+  scope: string | null
+  block_key: string
+  block_id: string
+  evidence_role: string
+  quote: string
+  document_id: string
+  title: string
+  category: string
+  heading_path: string | null
+  ordinal: number
 }
 
-export interface EntityDetail {
+export interface NodeDetail {
+  node: GraphNode
   entity: GraphNode
-  evidence: EvidenceItem[]
+  support: AssertionSupportItem[]
+  evidence: AssertionSupportItem[]
   edges: GraphEdge[]
+  collection: string
 }
 
 export interface BlockView {
-  fullname: string
+  block_key: string
+  block_id: string
   text: string
   title: string | null
   category: string | null
-  section: string | null
+  heading_path: string | null
   ordinal: number | null
   store_id: string
 }
@@ -78,38 +102,27 @@ export async function getEntityCatalog(collection?: string, type?: string): Prom
   if (collection) q.set('collection', collection)
   if (type) q.set('type', type)
   const qs = q.toString()
-  const url = await backendUrl('graph/entities' + (qs ? '?' + qs : ''))
+  const url = await backendUrl('graph/catalog' + (qs ? '?' + qs : ''))
   return service.get(url, true, false)
 }
 
-export async function getGraphNeighborhood(entityId: string, depth = 3): Promise<GraphNeighborhood> {
-  const url = await backendUrl(
-    'graph/neighborhood/' + encodeURIComponent(entityId) + '?depth=' + encodeURIComponent(String(depth)),
-  )
+export async function getGraphNeighborhood(nodeId: string, depth = 3, collection?: string): Promise<GraphNeighborhood> {
+  const q = new URLSearchParams({ depth: String(depth) })
+  if (collection) q.set('collection', collection)
+  const url = await backendUrl('graph/neighborhood/' + encodeURIComponent(nodeId) + '?' + q.toString())
   return service.get(url, true, false)
 }
 
-export async function getEntityDetail(entityId: string): Promise<EntityDetail> {
-  const url = await backendUrl('graph/entity/' + encodeURIComponent(entityId))
+export async function getNodeDetail(nodeId: string, collection?: string): Promise<NodeDetail> {
+  const q = new URLSearchParams()
+  if (collection) q.set('collection', collection)
+  const url = await backendUrl('graph/node/' + encodeURIComponent(nodeId) + (q.size ? '?' + q.toString() : ''))
   return service.get(url, true, false)
 }
 
-export async function getBlock(fullname: string, storeId: string): Promise<BlockView> {
-  const q = new URLSearchParams({ fullname, store_id: storeId })
+export async function getBlock(blockKey: string, collection?: string): Promise<BlockView> {
+  const q = new URLSearchParams({ block_key: blockKey })
+  if (collection) q.set('collection', collection)
   const url = await backendUrl('graph/block?' + q.toString())
   return service.get(url, true, false)
-}
-
-export async function addEntity(payload: {
-  name: string; type: string; aliases?: string[]; auto?: boolean
-}): Promise<{ entity_id: string }> {
-  const url = await backendUrl('graph/entities')
-  return service.post(url, payload, true, false)
-}
-
-export async function attachEvidence(entityId: string, payload: {
-  fullname: string; store_id: string
-}): Promise<any> {
-  const url = await backendUrl('graph/entities/' + encodeURIComponent(entityId) + '/attach')
-  return service.post(url, payload, true, false)
 }

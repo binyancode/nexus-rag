@@ -49,7 +49,8 @@ namespace NexusRAG.Server.Controllers
         {
             var table = await _sql.QueryAsync(
                 @"SELECT run_id,as_user,question,answer,citations,collection_id,collection_name,
-                         collection_selected_by,allowed_stores,max_parallel,[state],current_stage,
+                         collection_selected_by,allowed_stores,generation_scope,max_parallel,budgets,
+                         [state],current_stage,
                          node_count,tokens,error,cost_ms,created_at,updated_at
                   FROM nexus.query_run WHERE run_id=@runId",
                 new[] { new SqlParameter("@runId", runId) });
@@ -65,7 +66,9 @@ namespace NexusRAG.Server.Controllers
                 collection_name = r.Field<string?>("collection_name"),
                 collection_selected_by = r.Field<string?>("collection_selected_by"),
                 allowed_stores = r.Field<string?>("allowed_stores"),
+                generation_scope = r.Field<string?>("generation_scope"),
                 max_parallel = r.IsNull("max_parallel") ? 8 : r.Field<int>("max_parallel"),
+                budgets = r.Field<string?>("budgets"),
                 state = r.Field<string?>("state"), current_stage = r.Field<string?>("current_stage"),
                 node_count = r.IsNull("node_count") ? 0 : r.Field<int>("node_count"),
                 tokens = r.Field<string?>("tokens"),

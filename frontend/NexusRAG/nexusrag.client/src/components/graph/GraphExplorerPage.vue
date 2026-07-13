@@ -3,6 +3,9 @@
     <!-- 工具栏 -->
     <div class="gx-toolbar">
       <div class="gx-title">知识图谱</div>
+      <el-select v-model="activeCollection" size="small" placeholder="选择 Collection" style="width:190px" @change="loadCatalog(true)">
+        <el-option v-for="c in collections" :key="c.collection_id" :value="c.collection_id" :label="c.name" />
+      </el-select>
       <el-select v-model="typeFilter" size="small" placeholder="全部类型" clearable style="width:150px" @change="loadCatalog(true)">
         <el-option v-for="t in typeOptions" :key="t" :value="t" :label="t" />
       </el-select>
@@ -15,14 +18,13 @@
       <el-button size="small" :disabled="!selectedId" :loading="graphBusy" @click="expandSelectedAll">当前节点展开到底</el-button>
       <div class="gx-spacer"></div>
       <span class="gx-stat">节点 {{ nodes.length }} · 边 {{ edges.length }}</span>
-      <el-button size="small" type="primary" @click="addDlg = true">＋ 新增实体</el-button>
     </div>
 
     <div class="gx-main">
-      <!-- 实体浏览：本地快速搜索，点击后定位到图中节点 -->
+      <!-- 节点浏览：实体和行动都来自当前冻结代次 -->
       <aside class="gx-browser">
         <div class="gx-browser-head">
-          <span>实体浏览</span>
+          <span>实体 / 行动浏览</span>
           <span class="gx-browser-count">{{ filteredEntities.length }}</span>
         </div>
         <el-input
@@ -48,15 +50,15 @@
             </span>
             <span class="gx-browser-degree" title="关联边数">{{ catalogDegree[n.id] || 0 }}</span>
           </button>
-          <div v-if="!filteredEntities.length" class="gx-browser-empty">没有匹配的实体</div>
+          <div v-if="!filteredEntities.length" class="gx-browser-empty">没有匹配的节点</div>
         </div>
       </aside>
 
       <!-- 画布 -->
       <div class="gx-canvas" ref="canvasEl">
         <div v-if="!nodes.length && !graphBusy" class="gx-canvas-empty">
-          <b>从左侧选择一个实体</b>
-          <span>将加载该实体向外 {{ defaultDepth }} 跳的关系图</span>
+          <b>从左侧选择一个实体或行动</b>
+          <span>将加载该节点向外 {{ defaultDepth }} 跳的关系图</span>
         </div>
         <div v-if="graphBusy" class="gx-progress" :class="{ 'gx-progress--compact': graphVisible && nodes.length }">
           <div class="gx-progress-card">
@@ -127,6 +129,7 @@
             <div class="gx-detail-name">{{ detail.entity.name }}</div>
             <div class="gx-detail-sub">
               <el-tag size="small" :color="colorOf(detail.entity.type)" effect="dark" style="border:none">{{ detail.entity.type }}</el-tag>
+              <el-tag size="small" effect="plain">{{ detail.entity.kind }}</el-tag>
               <el-tag size="small" :type="originTag(detail.entity.origin)">{{ detail.entity.origin }}</el-tag>
               <el-tag v-if="detail.entity.locked" size="small" type="warning">locked</el-tag>
             </div>
@@ -142,12 +145,17 @@
         </div>
 
         <div class="gx-block">
-          <div class="gx-block-t">出处块（{{ detail.evidence.length }}）</div>
-          <div v-if="!detail.evidence.length" class="gx-empty">暂无出处</div>
+          <div class="gx-block-t">支持断言（{{ detail.support.length }}）</div>
+          <div v-if="!detail.support.length" class="gx-empty">暂无支持断言</div>
           <ul class="gx-ev-list">
-            <li v-for="ev in detail.evidence" :key="ev.fullname" @click="openBlock(ev.fullname, ev.store_id)">
-              <span class="gx-ev-name">{{ ev.fullname }}</span>
-              <el-tag size="small" :type="originTag(ev.origin)">{{ ev.origin }}</el-tag>
+            <li v-for="ev in detail.support" :key="`${ev.assertion_id}:${ev.block_key}`" @click="openBlock(ev.block_key)">
+              <span class="gx-ev-info">
+                <b class="gx-ev-name">{{ ev.assertion_id }} · {{ ev.block_key }}</b>
+                <small>{{ ev.quote }}</small>
+                <small v-if="ev.condition">条件：{{ ev.condition }}</small>
+                <small v-if="ev.exception">例外：{{ ev.exception }}</small>
+              </span>
+              <el-tag size="small" effect="plain">{{ ev.modality }}</el-tag>
             </li>
           </ul>
         </div>
@@ -168,52 +176,32 @@
     </div>
 
     <!-- 块原文查看 -->
-    <el-dialog v-model="blockDlg" :title="block?.fullname || '块原文'" width="640px">
+    <el-dialog v-model="blockDlg" :title="block?.block_key || '块原文'" width="640px">
       <div v-loading="blockLoading" class="gx-block-view">
         <div class="gx-block-meta" v-if="block">
-          《{{ block.title }}》 · {{ block.section }} · #{{ block.ordinal }}
+          《{{ block.title }}》 · {{ block.heading_path }} · #{{ block.ordinal }}
         </div>
         <pre class="gx-block-text">{{ block?.text }}</pre>
       </div>
     </el-dialog>
 
-    <!-- 新增实体 -->
-    <el-dialog v-model="addDlg" title="新增实体" width="460px" @closed="resetAdd">
-      <div class="fld">
-        <label>名称 <span class="req">*</span></label>
-        <el-input v-model="addForm.name" placeholder="规范全称" />
-      </div>
-      <div class="fld">
-        <label>类型 <span class="req">*</span></label>
-        <el-select v-model="addForm.type" style="width:100%" placeholder="选择类型">
-          <el-option v-for="t in typeOptions" :key="t" :value="t" :label="t" />
-        </el-select>
-      </div>
-      <div class="fld">
-        <label>别名（回车分隔）</label>
-        <el-input v-model="addForm.aliasText" placeholder="多个别名用回车或逗号分隔" />
-      </div>
-      <template #footer>
-        <el-button @click="addDlg = false">取消</el-button>
-        <el-button type="primary" :loading="adding" :disabled="!addForm.name || !addForm.type" @click="doAdd">创建</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
 import {
-  getGraph, getEntityCatalog, getGraphNeighborhood, getEntityDetail, getBlock, addEntity,
-  type GraphNode, type GraphEdge, type EntityDetail, type BlockView,
+  getGraph, getEntityCatalog, getGraphNeighborhood, getNodeDetail, getBlock,
+  type GraphNode, type GraphEdge, type NodeDetail, type BlockView,
 } from '../../backend/Graph.js'
+import { listQueryCollections, type QueryCollection } from '../../backend/Query.js'
 
 const TYPE_COLORS: Record<string, string> = {
-  AppType: '#2563eb', Reg: '#0891b2', Org: '#7c3aed',
-  Requirement: '#d97706', Category: '#059669', Concept: '#db2777',
+  Reg: '#0891b2', Org: '#7c3aed', Activity: '#2563eb', Product: '#d97706',
+  Category: '#059669', Concept: '#db2777', Action: '#dc2626',
 }
-const typeOptions = ['AppType', 'Reg', 'Org', 'Requirement', 'Category', 'Concept']
+const typeOptions = ['Reg', 'Org', 'Activity', 'Product', 'Category', 'Concept', 'Action']
 function colorOf(t: string) { return TYPE_COLORS[t] || '#64748b' }
 
 const loading = ref(false)
@@ -223,6 +211,8 @@ const progressText = ref('')
 const graphVisible = ref(true)
 const revealedCount = ref(0)
 const defaultDepth = ref(2)
+const activeCollection = ref<string>()
+const collections = ref<QueryCollection[]>([])
 const entityCatalog = ref<GraphNode[]>([])
 const nodes = ref<GraphNode[]>([])
 const edges = ref<GraphEdge[]>([])
@@ -232,30 +222,33 @@ const entityKeyword = ref('')
 const pos = reactive<Record<string, { x: number; y: number }>>({})
 
 const selectedId = ref('')
-const detail = ref<EntityDetail | null>(null)
+const detail = ref<NodeDetail | null>(null)
 
 const blockDlg = ref(false)
 const blockLoading = ref(false)
 const block = ref<BlockView | null>(null)
-
-const addDlg = ref(false)
-const adding = ref(false)
-const addForm = reactive({ name: '', type: '', aliasText: '' })
 
 // 视口
 const vb = reactive({ x: 0, y: 0, w: 1000, h: 700 })
 const canvasEl = ref<HTMLElement | null>(null)
 const graphBusy = computed(() => loading.value || layoutBusy.value)
 
-onMounted(() => loadCatalog(false))
+onMounted(async () => {
+  collections.value = await listQueryCollections()
+  activeCollection.value = collections.value.find(c => c.is_default)?.collection_id
+    || (collections.value.length === 1 ? collections.value[0]?.collection_id : undefined)
+  if (activeCollection.value) await loadCatalog(false)
+})
 
 async function loadCatalog(clearGraph: boolean) {
   loading.value = true
   progress.value = 8
   progressText.value = '正在加载实体目录…'
   try {
-    const data = await getEntityCatalog(undefined, typeFilter.value || undefined)
+    if (!activeCollection.value) return
+    const data = await getEntityCatalog(activeCollection.value, typeFilter.value || undefined)
     entityCatalog.value = data.nodes
+    activeCollection.value = data.collection || undefined
     if (clearGraph) clearCanvas()
   } catch {
     /* 拦截器已提示 */
@@ -546,7 +539,7 @@ const edgeLines = computed(() =>
 async function select(id: string) {
   selectedId.value = id
   try {
-    detail.value = await getEntityDetail(id)
+    detail.value = await getNodeDetail(id, activeCollection.value)
   } catch {
     detail.value = null
   }
@@ -633,7 +626,7 @@ async function loadCenter(id: string) {
   progress.value = 8
   progressText.value = `正在加载 ${defaultDepth.value} 跳关系…`
   try {
-    const g = await getGraphNeighborhood(id, defaultDepth.value)
+    const g = await getGraphNeighborhood(id, defaultDepth.value, activeCollection.value)
     nodes.value = g.nodes
     edges.value = g.edges
     expandableIds.value = g.expandable || []
@@ -665,7 +658,7 @@ async function expandNode(id: string) {
   progressText.value = '正在加载下一层关系…'
   try {
     const existingIds = new Set(nodes.value.map(n => n.id))
-    const g = await getGraphNeighborhood(id, 1)
+    const g = await getGraphNeighborhood(id, 1, activeCollection.value)
     mergeGraph(g.nodes, g.edges)
     const newIds = g.nodes.filter(n => !existingIds.has(n.id)).map(n => n.id)
     expandableIds.value = [...new Set([
@@ -690,7 +683,7 @@ async function expandSelectedAll() {
   progress.value = 5
   progressText.value = '正在加载当前连通图…'
   try {
-    const g = await getGraphNeighborhood(id, 0)
+    const g = await getGraphNeighborhood(id, 0, activeCollection.value)
     nodes.value = g.nodes
     edges.value = g.edges
     expandableIds.value = []
@@ -711,7 +704,7 @@ async function expandAll() {
   progressText.value = '正在加载全部节点和关系…'
   graphVisible.value = false
   try {
-    const g = await getGraph(undefined, typeFilter.value || undefined)
+    const g = await getGraph(activeCollection.value, typeFilter.value || undefined)
     nodes.value = g.nodes
     edges.value = g.edges
     expandableIds.value = []
@@ -725,34 +718,18 @@ async function expandAll() {
   }
 }
 
-async function openBlock(fullname: string, storeId: string) {
+async function openBlock(blockKey: string) {
   blockDlg.value = true
   blockLoading.value = true
   block.value = null
   try {
-    block.value = await getBlock(fullname, storeId)
+    block.value = await getBlock(blockKey, activeCollection.value)
   } catch {
     /* 拦截器已提示 */
   } finally {
     blockLoading.value = false
   }
 }
-
-async function doAdd() {
-  adding.value = true
-  try {
-    const aliases = addForm.aliasText.split(/[\n,，]/).map(s => s.trim()).filter(Boolean)
-    await addEntity({ name: addForm.name.trim(), type: addForm.type, aliases, auto: false })
-    ElMessage.success('已新增实体')
-    addDlg.value = false
-    await loadCatalog(false)
-  } catch {
-    /* 拦截器已提示 */
-  } finally {
-    adding.value = false
-  }
-}
-function resetAdd() { addForm.name = ''; addForm.type = ''; addForm.aliasText = '' }
 
 function originTag(o: string): 'success' | 'info' | 'warning' {
   if (o === 'manual') return 'warning'
@@ -864,6 +841,8 @@ function onWheel(ev: WheelEvent) {
 .gx-ev-list { list-style: none; margin: 0; padding: 0; }
 .gx-ev-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 12px; }
 .gx-ev-list li:hover { background: var(--beone-bg-panel); }
+.gx-ev-info { min-width:0; display:flex; flex:1; flex-direction:column; gap:3px; }
+.gx-ev-info small { color:var(--beone-text-secondary); line-height:1.45; }
 .gx-ev-name { font-family: monospace; word-break: break-all; }
 .gx-edge-list { list-style: none; margin: 0; padding: 0; font-size: 13px; }
 .gx-edge-list li { display: flex; align-items: center; gap: 6px; padding: 4px 0; }

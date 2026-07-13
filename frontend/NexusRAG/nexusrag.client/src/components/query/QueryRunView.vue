@@ -28,19 +28,51 @@
     <div class="stage-flow-wrap">
       <div class="stage-flow">
         <template v-for="(s, index) in stages" :key="s.stage_id">
-          <button class="stage-card" :class="[`stage--${s.state}`, { selected: selectedStageId === s.stage_id }]"
-              type="button" @click="selectSummary(s)">
+          <div
+            class="stage-card"
+            :class="[
+              `stage--${s.state}`,
+              {
+                'selected-stage': selectedStageId === s.stage_id && detailMode === 'summary',
+                'selected-output-source': selectedStageId === s.stage_id && detailMode === 'output',
+              },
+            ]"
+            role="button"
+            tabindex="0"
+            :aria-pressed="selectedStageId === s.stage_id && detailMode === 'summary'"
+            @click="selectSummary(s)"
+            @keydown.enter.prevent="selectSummary(s)"
+            @keydown.space.prevent="selectSummary(s)"
+          >
             <span class="stage-icon"><el-icon><component :is="stageIcon(s.stage_id)" /></el-icon></span>
-            <span class="stage-body"><b>{{ s.name }}</b><small>{{ stateLabel(s.state) }}</small></span>
+            <span class="stage-body"><b :title="s.name">{{ s.name }}</b><small>{{ stateLabel(s.state) }}</small></span>
             <span v-if="stageTokenTotal(s)" class="stage-token">{{ fmt(stageTokenTotal(s)) }}</span>
-                <button v-if="s.stage_id === 'generator' && s.output" type="button" class="inside-output"
-                  @click.stop="selectOutput(s)">查看答案</button>
-          </button>
+            <button
+              v-if="s.stage_id === 'generator' && s.output"
+              type="button"
+              class="inside-output"
+              :class="{ selected: selectedStageId === s.stage_id && detailMode === 'output' }"
+              @click.stop="selectOutput(s)"
+            >查看答案</button>
+          </div>
 
-          <div v-if="index < stages.length - 1" class="stage-connector">
+          <div
+            v-if="index < stages.length - 1"
+            class="stage-connector"
+            :class="{ 'selected-output': selectedStageId === s.stage_id && detailMode === 'output' }"
+          >
             <span class="connector-line"></span>
-            <button type="button" class="output-chip" :class="{ ready: !!s.output }" :disabled="!s.output"
-                  @click.stop="selectOutput(s)">{{ outputLabel(s.stage_id) }}</button>
+            <button
+              type="button"
+              class="output-chip"
+              :class="{
+                ready: !!s.output,
+                selected: selectedStageId === s.stage_id && detailMode === 'output',
+              }"
+              :disabled="!s.output"
+              :aria-pressed="selectedStageId === s.stage_id && detailMode === 'output'"
+              @click.stop="selectOutput(s)"
+            >{{ outputLabel(s.stage_id) }}</button>
           </div>
         </template>
       </div>
@@ -136,26 +168,32 @@ function stageIcon(id: string) { return ({initializer:Setting,compiler:EditPen,o
 .token-total { margin-left:auto; padding-left:14px; border-left:1px solid #cadde9; }
 .token-bar.is-live .token-title:after { content:''; width:6px; height:6px; border-radius:50%; background:#2e9b5b; animation:pulse 1.2s infinite; }
 @keyframes pulse { 50% { opacity:.35; transform:scale(.75); } }
-.stage-flow-wrap { overflow-x:auto; padding:8px 4px 16px; }
-.stage-flow { width:100%; min-width:1160px; display:flex; align-items:center; }
-.stage-card { position:relative; width:156px; min-height:82px; flex:0 0 156px; display:flex; align-items:center; gap:11px; padding:13px 12px; border:1px solid #d9e4ee; border-radius:13px; background:#fbfcfe; text-align:left; color:inherit; transition:.15s; }
-.stage-card { cursor:pointer; }
-.stage-card.selected { border-color:#2f7cb4; box-shadow:0 0 0 3px rgba(47,124,180,.12); }
+.stage-flow-wrap { overflow-x:auto; padding:8px 5px 18px; }
+.stage-flow { width:100%; min-width:1240px; display:flex; align-items:center; }
+.stage-card { box-sizing:border-box; position:relative; width:174px; min-height:88px; flex:0 0 174px; display:flex; align-items:center; gap:10px; padding:18px 12px 13px; overflow:visible; border:1px solid #d9e4ee; border-radius:13px; background:#fbfcfe; text-align:left; color:inherit; cursor:pointer; transition:border-color .15s,box-shadow .15s,background .15s,transform .15s; }
+.stage-card:hover { border-color:#a9c8de; background:#f8fbfd; }
+.stage-card:focus-visible { outline:2px solid rgba(47,124,180,.45); outline-offset:2px; }
+.stage-card.selected-stage { border-color:#2f7cb4; background:#edf7fd; box-shadow:0 0 0 3px rgba(47,124,180,.16),0 7px 18px rgba(47,124,180,.10); transform:translateY(-1px); }
+.stage-card.selected-output-source { border-color:#79afd2; background:#f4fafe; box-shadow:inset 0 0 0 1px rgba(47,124,180,.10); }
 .stage-icon { width:36px; height:36px; flex:0 0 36px; display:grid; place-items:center; border-radius:10px; background:#eef2f6; color:#8291a0; font-size:16px; }
-.stage-body { min-width:0; display:flex; flex-direction:column; gap:3px; }
-.stage-body b { font-size:12px; color:#203246; white-space:nowrap; }
+.stage-body { min-width:0; flex:1 1 auto; display:flex; flex-direction:column; gap:3px; overflow:hidden; }
+.stage-body b { display:-webkit-box; overflow:hidden; color:#203246; font-size:12px; line-height:1.35; overflow-wrap:anywhere; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
 .stage-body small { font-size:10px; color:#8190a0; }
-.stage-token { position:absolute; right:7px; top:6px; font-size:8px; color:#7b8b9b; }
-.inside-output { position:absolute; left:50%; bottom:-11px; padding:3px 10px; border:1px solid #b9ddc9; border-radius:9px; background:#e7f4ed; color:#2e9b5b; font-size:9px; white-space:nowrap; cursor:pointer; transform:translateX(-50%); }
+.stage-token { position:absolute; right:8px; top:6px; max-width:76px; overflow:hidden; color:#7b8b9b; font-size:8px; text-overflow:ellipsis; white-space:nowrap; }
+.inside-output { position:absolute; left:50%; bottom:-12px; padding:3px 10px; border:1px solid #b9ddc9; border-radius:9px; background:#e7f4ed; color:#2e9b5b; font-size:9px; white-space:nowrap; cursor:pointer; transform:translateX(-50%); transition:.15s; }
+.inside-output.selected { border-color:#2f7cb4; background:#2f7cb4; color:#fff; box-shadow:0 0 0 3px rgba(47,124,180,.15); }
 .stage--running { border-color:#9bc5e1; background:#f0f8fd; }
 .stage--running .stage-icon { background:#dceefa; color:#2f7cb4; }
 .stage--succeeded .stage-icon { background:#e5f5ec; color:#2e9b5b; }
 .stage--failed .stage-icon { background:#fdeceb; color:#d52b1e; }
-.stage-connector { position:relative; min-width:96px; height:82px; flex:1 1 120px; display:flex; align-items:center; justify-content:center; }
-.connector-line { position:absolute; left:0; right:7px; top:50%; height:2px; background:#d2dce6; transform:translateY(-50%); }
+.stage-connector { position:relative; min-width:96px; height:88px; flex:1 1 120px; display:flex; align-items:center; justify-content:center; }
+.connector-line { position:absolute; left:0; right:7px; top:50%; height:2px; background:#d2dce6; transform:translateY(-50%); transition:.15s; }
 .stage-connector::after { content:''; position:absolute; right:0; top:50%; width:0; height:0; border-top:5px solid transparent; border-bottom:5px solid transparent; border-left:7px solid #9baaba; transform:translateY(-50%); }
-.output-chip { position:relative; z-index:1; max-width:104px; padding:4px 10px; border:1px solid #d5e0ea; border-radius:11px; background:#fff; color:#8a98a7; font-size:9px; line-height:15px; white-space:nowrap; }
+.stage-connector.selected-output .connector-line { height:3px; background:#2f7cb4; box-shadow:0 0 8px rgba(47,124,180,.28); }
+.stage-connector.selected-output::after { border-left-color:#2f7cb4; }
+.output-chip { box-sizing:border-box; position:relative; z-index:1; max-width:112px; overflow:hidden; padding:4px 10px; border:1px solid #d5e0ea; border-radius:11px; background:#fff; color:#8a98a7; font-size:9px; line-height:15px; text-overflow:ellipsis; white-space:nowrap; transition:.15s; }
 .output-chip.ready { border-color:#9cc7e2; color:#2f7cb4; cursor:pointer; box-shadow:0 2px 7px rgba(47,124,180,.1); }
+.output-chip.selected { border-color:#2f7cb4; background:#2f7cb4; color:#fff; font-weight:700; box-shadow:0 0 0 3px rgba(47,124,180,.15),0 4px 10px rgba(47,124,180,.18); }
 .output-placeholder { min-height:170px; display:flex; align-items:center; justify-content:center; border:1px dashed var(--beone-border); border-radius:10px; color:var(--beone-text-secondary); font-size:12px; }
 .stage-detail-enter-active, .stage-detail-leave-active { transition:opacity .22s ease, transform .22s ease; }
 .stage-detail-enter-from { opacity:0; transform:translateX(14px); }

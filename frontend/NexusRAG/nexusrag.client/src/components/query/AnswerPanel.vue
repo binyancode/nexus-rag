@@ -5,18 +5,20 @@
     <div v-else class="answer-text">{{ answer }}</div>
     <div v-if="citations.length" class="citations">
       <div class="citations-title">出处（{{ citations.length }}）</div>
-      <div v-for="c in citations" :key="c.fullname" class="citation">
-        <code>{{ c.fullname }}</code>
-        <span v-if="c.quote">{{ c.quote }}</span>
+      <div v-for="c in citations" :key="`${c.group || ''}:${c.assertion_id || ''}:${c.block_key}`" class="citation">
+        <code>{{ c.group ? `[${c.group}] ` : '' }}{{ c.assertion_id ? `${c.assertion_id} · ` : '' }}{{ c.block_key }}</code>
+        <span>{{ c.quote }}</span>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import type { QueryCitation } from '../../backend/Query.js'
+
 withDefaults(defineProps<{
   answer?: string | null
-  citations?: Array<{ fullname: string; quote?: string | null }>
+  citations?: QueryCitation[]
 }>(), { citations: () => [] })
 </script>
 

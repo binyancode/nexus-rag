@@ -7,9 +7,9 @@ import uuid
 from fastapi import APIRouter, Request
 
 from core.api_handler import api_handler
-from nexus.query import cancel_query, run_query
-from nexus.query.models import QueryBudgets
-from nexus.stores.store_registry import store_registry
+from nexus.domain import QueryBudgets
+from nexus.infrastructure import StoreCollectionRepository
+from nexus.querying import cancel_query, run_query
 
 router = APIRouter()
 
@@ -18,7 +18,7 @@ router = APIRouter()
 @api_handler.log()
 @api_handler.auth()
 @api_handler.service()
-async def list_query_collections(request: Request, registry: store_registry = None):
+async def list_query_collections(request: Request, registry: StoreCollectionRepository = None):
     identity = getattr(request.state, "identity", None)
     as_user = identity.user if identity else None
     return {

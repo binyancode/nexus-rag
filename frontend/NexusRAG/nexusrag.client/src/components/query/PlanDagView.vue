@@ -51,10 +51,10 @@ import type { QueryNodeState } from '../../backend/Query.js'
 
 interface PlanNode {
   id: string; op: string; desc?: string; name?: string
-  inputs?: string[] | Record<string,string>; params?: Record<string,unknown>
+  inputs?: string[] | Record<string,string | {node_id:string;kind:string}>; params?: Record<string,unknown>
   goal?: Record<string,unknown>; layer?: number
 }
-const props = defineProps<{ plan: { nodes?: PlanNode[]; outputs?:Record<string,string> } | null; states?: QueryNodeState[] }>()
+const props = defineProps<{ plan: { nodes?: PlanNode[]; outputs?:Record<string,unknown>; question?:string; intent?:Record<string,unknown> } | null; states?: QueryNodeState[] }>()
 const nodeTypes: any = { dagNode: markRaw(IndexDagNode) }
 const stateMap = computed(() => Object.fromEntries((props.states || []).map(s => [s.node_id, s])))
 const selectedId = ref<string|null>(null)
@@ -62,9 +62,18 @@ const isPhysical = computed(() => props.states !== undefined)
 
 watch(() => props.plan, () => { selectedId.value=null })
 
+const planNodes = computed<PlanNode[]>(() => {
+  if (props.plan?.nodes?.length) return props.plan.nodes
+  if (props.plan?.intent) return [{
+    id:'intent', op:String(props.plan.intent.kind || 'logical_intent'),
+    name:'强类型查询意图', desc:props.plan.question,
+    goal:props.plan.intent, inputs:[], layer:0,
+  }]
+  return []
+})
+
 const layers = computed(() => {
-  const planNodes = props.plan?.nodes || []
-  const byId = new Map(planNodes.map(n => [n.id, n]))
+  const byId = new Map(planNodes.value.map(n => [n.id, n]))
   const memo: Record<string, number> = {}
   const depth = (id: string): number => {
     if (memo[id] !== undefined) return memo[id]!
@@ -72,13 +81,13 @@ const layers = computed(() => {
     const deps = inputIds(n)
     return (memo[id] = deps.length ? 1 + Math.max(...deps.map(depth)) : 0)
   }
-  for (const n of planNodes) depth(n.id)
+  for (const n of planNodes.value) depth(n.id)
   return memo
 })
 
 const nodes = computed<any[]>(() => {
   const grouped: Record<number, PlanNode[]> = {}
-  for (const n of props.plan?.nodes || []) (grouped[layers.value[n.id] || 0] ||= []).push(n)
+  for (const n of planNodes.value) (grouped[layers.value[n.id] || 0] ||= []).push(n)
   return Object.entries(grouped).flatMap(([layer, group]) => group.map((n, i) => {
     const st = stateMap.value[n.id]
     return {
@@ -94,13 +103,13 @@ const nodes = computed<any[]>(() => {
     }
   }))
 })
-const edges = computed<any[]>(() => (props.plan?.nodes || []).flatMap(n => inputIds(n).map(dep => ({
+const edges = computed<any[]>(() => planNodes.value.flatMap(n => inputIds(n).map(dep => ({
   id: `${dep}->${n.id}`, source: dep, target: n.id, markerEnd: MarkerType.ArrowClosed,
   style: { stroke: '#91a7bd', strokeWidth: 1.5 },
 }))))
 
 const selectedDetail = computed(() => {
-  const n=(props.plan?.nodes||[]).find(x=>x.id===selectedId.value)
+  const n=planNodes.value.find(x=>x.id===selectedId.value)
   if(!n)return null
   const st=stateMap.value[n.id]
   const output=parse(st?.output)
@@ -120,12 +129,13 @@ const inputRows=computed(()=>{
   const input=selectedDetail.value?.inputs
   if(!input)return[]
   if(Array.isArray(input))return input.map((x,i)=>({key:`依赖 ${i+1}`,value:x}))
-  return Object.entries(input).map(([key,value])=>({key,value}))
+  return Object.entries(input).map(([key,value])=>({key,value:display(value)}))
 })
 
 function inputIds(n?: PlanNode) {
   if (!n?.inputs) return []
-  return Array.isArray(n.inputs) ? n.inputs : [...new Set(Object.values(n.inputs))]
+  if (Array.isArray(n.inputs)) return n.inputs
+  return [...new Set(Object.values(n.inputs).map(value => typeof value === 'string' ? value : value.node_id))]
 }
 function stateColor(s?: string | null) {
   return ({ running:'#2f7cb4',succeeded:'#2e9b5b',failed:'#d52b1e',skipped:'#97a3ae',cancelled:'#97a3ae' } as Record<string,string>)[s || ''] || '#7c5cff'
@@ -146,7 +156,7 @@ function tokenText(raw?:string|null){const t=parse(raw);if(!t)return null;return
 function resultSummary(output:any){
   if(!output?.kind)return null
   if(output.kind==='evidence_bundle')return{kind:'分组证据',summary:`${output.groups?.length||0} 个文档组 · ${output.items?.length||0} 个原文块`}
-  const labels:Record<string,string>={entity_set:'实体集合',block_set:'原文块集合',answer:'答案',empty:'空结果'}
+  const labels:Record<string,string>={entity_set:'实体集合',action_set:'行动集合',fact_set:'断言/行动事实',evidence_set:'断言/原文证据',evidence_bundle:'分组证据',answer:'答案',empty:'空结果'}
   return{kind:labels[output.kind]||output.kind,summary:`${output.items?.length||0} 项`}
 }
 function stateTag(s:string):any{return({succeeded:'success',failed:'danger',running:'primary',skipped:'info',cancelled:'info'}as Record<string,string>)[s]||'info'}

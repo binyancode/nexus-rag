@@ -27,7 +27,9 @@ export interface QueryRunInfo {
   collection_name: string | null
   collection_selected_by: string | null
   allowed_stores: string | null
+  generation_scope: string | null
   max_parallel: number
+  budgets: string | null
   state: string
   current_stage: string | null
   node_count: number
@@ -36,6 +38,13 @@ export interface QueryRunInfo {
   cost_ms: number
   created_at: string | null
   updated_at: string | null
+}
+
+export interface QueryCitation {
+  assertion_id?: string
+  group?: string
+  block_key: string
+  quote: string
 }
 
 export interface QueryNodeState {

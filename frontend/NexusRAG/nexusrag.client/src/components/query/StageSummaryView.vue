@@ -36,13 +36,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { ChatDotRound, Connection, EditPen, MagicStick, Setting } from '@element-plus/icons-vue'
-import type { QueryNodeState, QueryStageState } from '../../backend/Query.js'
+import type { QueryCitation, QueryNodeState, QueryStageState } from '../../backend/Query.js'
 
 const props = withDefaults(defineProps<{
   stage: QueryStageState
   nodes?: QueryNodeState[]
   runAnswer?: string | null
-  citations?: Array<{ fullname:string; quote?:string|null }>
+  citations?: QueryCitation[]
 }>(), { nodes:()=>[], citations:()=>[] })
 
 const output = computed(() => parse(props.stage.output) || {})
@@ -50,8 +50,8 @@ const input = computed(() => parse(props.stage.input) || {})
 const tokens = computed(() => parse(props.stage.tokens) || {})
 const description = computed(() => ({
   initializer:'确定用户可见的 Collection、Store 范围、预算和运行资源。',
-  compiler:'把用户问题编译为只表达业务意图的 SQG。',
-  optimizer:'绑定实体与关系，将 SQG 转换为可执行 PEP。',
+  compiler:'把用户问题编译为一个强类型、只表达业务意图的 SQG。',
+  optimizer:'确定性绑定可见词汇，并按模板生成带类型端口的 PEP。',
   coordinator:'使用 Workflow 并行执行 PEP 中的固定物理算子。',
   generator:'只依据协调器输出的事实与原文依据生成答案。',
 } as Record<string,string>)[props.stage.stage_id])
@@ -67,18 +67,18 @@ const facts = computed(() => {
       {label:'选择方式',value:selectionLabel(o.collection?.selected_by)},
       {label:'可用 Store',value:String(o.collection?.allowed_stores?.length || 0)},
       {label:'可见文档',value:String(o.documents?.length || 0)},
-      {label:'可见实体',value:String(o.entity_catalog?.length || 0)},
+      {label:'可见实体 / 行动',value:`${o.entities?.length || 0} / ${o.actions?.length || 0}`},
     ]
     case 'compiler': return [
-      {label:'SQG 节点',value:String(o.nodes?.length || 0)},
-      {label:'逻辑算子',value:opCounts(o.nodes)},
-      {label:'终点',value:o.nodes?.find((x:any)=>x.op==='Answer')?.desc || '—'},
+      {label:'SQG 意图',value:o.intent?.kind || '—'},
+      {label:'目标',value:o.intent?.target || o.intent?.relation || '证据'},
+      {label:'命名对象',value:(o.intent?.subjects || o.intent?.documents || [o.intent?.action || o.intent?.start]).filter(Boolean).join('、') || '—'},
     ]
     case 'optimizer': return [
       {label:'PEP 节点',value:String(o.nodes?.length || 0)},
       {label:'物理算子',value:opCounts(o.nodes)},
-      {label:'事实输出',value:o.outputs?.facts || '—'},
-      {label:'依据输出',value:o.outputs?.evidence || '—'},
+      {label:'事实输出',value:o.outputs?.facts?.node_id || '—'},
+      {label:'依据输出',value:o.outputs?.evidence?.node_id || '—'},
     ]
     case 'coordinator': {
       const succeeded=props.nodes.filter(n=>n.state==='succeeded').length

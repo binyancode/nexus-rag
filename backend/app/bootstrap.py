@@ -10,8 +10,17 @@ from services.credential import azure_keyvault_credential_provider
 from core.services import services
 from core.api_handler import api_handler
 from core.api_log import ApiLogRecord, ApiLogSink
-from nexus.stores import store_registry, document_store, entity_store, edge_store, block_store
-from nexus.index import attach_entity
+from nexus.infrastructure import (
+    AssertionRepository,
+    DocumentRepository,
+    ExtractionAttemptRepository,
+    GenerationRepository,
+    GenerationSearchAdapter,
+    GraphRepository,
+    QualityRepository,
+    QueryRepository,
+    StoreCollectionRepository,
+)
 from utils.logger import get_logger
 
 _log = get_logger("api")
@@ -52,15 +61,16 @@ def register_services():
     services.register(sql_db)
     services.register(azure_keyvault_credential_provider)
 
-    # Nexus 存储层（实体/边/出处/Store/文档），均依赖 services[sql_db]
-    services.register(store_registry)
-    services.register(document_store)
-    services.register(entity_store)
-    services.register(edge_store)
-    services.register(block_store)
-
-    # Nexus 索引（建立索引阶段）
-    services.register(attach_entity)
+    # Assertion-first Nexus：配置、代次、事实、查询、图和 AI Search。
+    services.register(StoreCollectionRepository)
+    services.register(GenerationRepository)
+    services.register(DocumentRepository)
+    services.register(ExtractionAttemptRepository)
+    services.register(AssertionRepository)
+    services.register(QualityRepository)
+    services.register(GenerationSearchAdapter)
+    services.register(QueryRepository)
+    services.register(GraphRepository)
 
     # services[Type] 取实例时，自动把对应 config 段传给构造函数
     services.register_default_config(sql_db, "sql_db")

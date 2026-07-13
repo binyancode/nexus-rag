@@ -27,8 +27,9 @@ namespace NexusRAG.Server.Controllers
         {
             if (top <= 0 || top > 500) top = 100;
             var table = await _sql.QueryAsync(
-                @"SELECT TOP (@top) run_id, as_user, category, store_id, [state],
-                         doc_count, block_count, node_count, tokens, cost_ms, error, created_at, updated_at
+                @"SELECT TOP (@top) run_id, generation_id, as_user, category, store_id, [state],
+                         document_count AS doc_count, block_count, node_count, tokens,
+                         cost_ms, error, created_at, updated_at
                   FROM nexus.index_run
                   ORDER BY created_at DESC",
                 new[] { new SqlParameter("@top", top) });
@@ -36,6 +37,7 @@ namespace NexusRAG.Server.Controllers
             var runs = table.AsEnumerable().Select(r => new
             {
                 run_id = r.Field<string?>("run_id"),
+                generation_id = r.Field<string?>("generation_id"),
                 as_user = r.Field<string?>("as_user"),
                 category = r.Field<string?>("category"),
                 store_id = r.Field<string?>("store_id"),
@@ -58,8 +60,10 @@ namespace NexusRAG.Server.Controllers
         public async Task<APIResponseModel> GetRun(string runId)
         {
             var runTable = await _sql.QueryAsync(
-                @"SELECT run_id, as_user, store_id, category, max_parallel, [state],
-                         doc_count, block_count, node_count, tokens, dag, error, cost_ms, created_at, updated_at
+                @"SELECT run_id, generation_id, as_user, store_id, category, max_parallel, [state],
+                         current_phase, document_count AS doc_count, block_count, entity_count,
+                         action_count, assertion_count, graph_edge_count, quality_issue_count,
+                         node_count, tokens, dag, error, cost_ms, created_at, updated_at
                   FROM nexus.index_run WHERE run_id = @runId",
                 new[] { new SqlParameter("@runId", runId) });
 
@@ -72,13 +76,20 @@ namespace NexusRAG.Server.Controllers
             var run = new
             {
                 run_id = r.Field<string?>("run_id"),
+                generation_id = r.Field<string?>("generation_id"),
                 as_user = r.Field<string?>("as_user"),
                 store_id = r.Field<string?>("store_id"),
                 category = r.Field<string?>("category"),
                 max_parallel = r.IsNull("max_parallel") ? 8 : r.Field<int>("max_parallel"),
                 state = r.Field<string?>("state"),
+                current_phase = r.Field<string?>("current_phase"),
                 doc_count = r.IsNull("doc_count") ? 0 : r.Field<int>("doc_count"),
                 block_count = r.IsNull("block_count") ? 0 : r.Field<int>("block_count"),
+                entity_count = r.IsNull("entity_count") ? 0 : r.Field<int>("entity_count"),
+                action_count = r.IsNull("action_count") ? 0 : r.Field<int>("action_count"),
+                assertion_count = r.IsNull("assertion_count") ? 0 : r.Field<int>("assertion_count"),
+                graph_edge_count = r.IsNull("graph_edge_count") ? 0 : r.Field<int>("graph_edge_count"),
+                quality_issue_count = r.IsNull("quality_issue_count") ? 0 : r.Field<int>("quality_issue_count"),
                 node_count = r.IsNull("node_count") ? 0 : r.Field<int>("node_count"),
                 tokens = r.Field<string?>("tokens"),   // JSON 字符串
                 dag = r.Field<string?>("dag"),          // JSON 字符串
@@ -89,7 +100,8 @@ namespace NexusRAG.Server.Controllers
             };
 
             var nodeTable = await _sql.QueryAsync(
-                @"SELECT node_id, [state], tokens, [output], error, cost_ms, started_at, ended_at
+                @"SELECT node_id, [state], op, [input], [output], [value], tokens,
+                         error, cost_ms, started_at, ended_at
                   FROM nexus.index_node WHERE run_id = @runId",
                 new[] { new SqlParameter("@runId", runId) });
 
@@ -97,8 +109,14 @@ namespace NexusRAG.Server.Controllers
             {
                 node_id = n.Field<string?>("node_id"),
                 state = n.Field<string?>("state"),
+                op = n.Field<string?>("op"),
+                input = n.Field<string?>("input"),
                 tokens = n.Field<string?>("tokens"),
-                output = n.Field<string?>("output"),
+                // Keep the established frontend shape: display text comes from value.
+                // Fall back to JSON output for compatibility with older rows.
+                output = n.Field<string?>("value") ?? n.Field<string?>("output"),
+                value = n.Field<string?>("value"),
+                output_json = n.Field<string?>("output"),
                 error = n.Field<string?>("error"),
                 cost_ms = n.IsNull("cost_ms") ? (int?)null : n.Field<int>("cost_ms"),
                 started_at = n.Field<DateTime?>("started_at"),

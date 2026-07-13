@@ -182,6 +182,48 @@ class sql_db:
         """执行非查询语句（复用池化连接；连接失效自动重连重试）。返回受影响行数。"""
         return self._run(query, params, fetch=False)
 
+    def execute_many(self, query, params_list):
+        """在一个事务中批量执行同一语句，显著减少远程 SQL 往返。
+
+        每批独占一个池连接；成功提交，失败回滚。适合索引期批量写 Mention、
+        Assertion、Evidence 等数据。空列表直接返回 0。
+        """
+        rows = list(params_list or [])
+        if not rows:
+            return 0
+        last_exc = None
+        for _ in range(3):
+            try:
+                conn, created = self._acquire()
+            except pyodbc.Error as exc:
+                last_exc = exc
+                continue
+            broken = False
+            try:
+                conn.autocommit = False
+                with conn.cursor() as cursor:
+                    cursor.fast_executemany = True
+                    cursor.executemany(query, rows)
+                conn.commit()
+                conn.autocommit = True
+                self._release(conn, created)
+                return len(rows)
+            except pyodbc.Error as exc:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                broken = self._is_conn_error(exc)
+                try:
+                    conn.autocommit = True
+                except Exception:
+                    broken = True
+                self._release(conn, created, broken=broken)
+                if not broken:
+                    raise
+                last_exc = exc
+        raise last_exc
+
     def close(self) -> None:
         """关闭池中所有连接（进程退出/重置时调用）。"""
         with self._pool_lock:

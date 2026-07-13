@@ -6,6 +6,7 @@ import { backendUrl } from '../bff/Config.js'
 export interface IndexFile {
   filename: string
   text: string
+  category?: string
 }
 
 export interface CreateIndexPayload {
@@ -15,9 +16,7 @@ export interface CreateIndexPayload {
   store_credential: string
   index_name?: string
   category: string
-  auto_attach: boolean
   max_parallel?: number
-  overwrite?: boolean
 }
 
 export interface CreateIndexResult {

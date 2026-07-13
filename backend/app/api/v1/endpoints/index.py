@@ -1,4 +1,4 @@
-"""/api/v1/index —— 建立索引（上传 txt → 异步管线 → 轮询进度）。
+"""/api/v1/index —— 建立隔离的完整索引代次。
 
 - GET  "/stores"          已注册的 block store 列表（下拉用）
 - GET  "/collections"     collection 列表
@@ -19,9 +19,9 @@ from fastapi import APIRouter, Request
 
 from core.api_handler import api_handler
 from services.credential import azure_keyvault_credential_provider
-from nexus.index import run_index, cancel_run
-from nexus.models.store import Collection, SearchStore
-from nexus.stores.store_registry import store_registry
+from nexus.domain import Collection, SearchStore
+from nexus.indexing import run_index, cancel_run
+from nexus.infrastructure import StoreCollectionRepository
 
 router = APIRouter()
 
@@ -37,7 +37,7 @@ def _store_id_of(credential_name: str) -> str:
 @api_handler.log()
 @api_handler.auth()
 @api_handler.service()
-async def list_stores(request: Request, reg: store_registry = None):
+async def list_stores(request: Request, reg: StoreCollectionRepository = None):
     return {"stores": [s.model_dump() for s in reg.list_stores()]}
 
 
@@ -45,7 +45,7 @@ async def list_stores(request: Request, reg: store_registry = None):
 @api_handler.log()
 @api_handler.auth()
 @api_handler.service()
-async def list_collections(request: Request, reg: store_registry = None):
+async def list_collections(request: Request, reg: StoreCollectionRepository = None):
     return {"collections": [c.model_dump() for c in reg.list_collections()]}
 
 
@@ -79,14 +79,15 @@ async def list_search_indexes(request: Request, cred: azure_keyvault_credential_
 @api_handler.log(sanitize=["files"])
 @api_handler.auth()
 @api_handler.service()
-async def create_index(request: Request, reg: store_registry = None):
+async def create_index(request: Request, reg: StoreCollectionRepository = None):
     """JSON body:
-        files: [{filename, text}]   （前端读取 .txt 文本后提交）
+        files: [{filename, text, category?}]（每份文档可覆盖默认 category）
         llm_credential / embedding_credential : 凭据名
         store_credential : azure_ai_search 凭据名（block store）
         index_name       : 目标索引（必填）
-        category         : 必填（进入 fullname）
-        auto_attach      : bool（实体入网是否自动归一）
+        category         : 必填（进入文档与 Block 元数据）
+        auto_attach      : 兼容字段，已忽略
+        overwrite        : 兼容字段，已忽略
         max_parallel     : int（DAG 并行度，默认 8）
     """
     body = await request.json()
@@ -95,8 +96,6 @@ async def create_index(request: Request, reg: store_registry = None):
     store_credential = (body.get("store_credential") or "").strip()
     index_name = (body.get("index_name") or "").strip() or None
     category = (body.get("category") or "").strip()
-    auto_attach = bool(body.get("auto_attach", True))
-    overwrite = bool(body.get("overwrite", False))
     try:
         max_parallel = int(body.get("max_parallel", 8))
     except (TypeError, ValueError):
@@ -107,12 +106,15 @@ async def create_index(request: Request, reg: store_registry = None):
         return {"state": "error",
                 "message": "llm_credential / embedding_credential / store_credential / index_name / category 均必填"}
 
-    files: list[tuple[str, str]] = []
+    files: list[tuple[str, str, str]] = []
     for f in body.get("files", []) or []:
         text = f.get("text")
         if text is None:
             continue
-        files.append((f.get("filename") or "untitled.txt", text))
+        file_category = (f.get("category") or category).strip()
+        if not file_category:
+            return {"state": "error", "message": "每份文档必须指定 category，或提供默认 category"}
+        files.append((f.get("filename") or "untitled.txt", text, file_category))
     if not files:
         return {"state": "error", "message": "未收到任何文件"}
 
@@ -138,7 +140,16 @@ async def create_index(request: Request, reg: store_registry = None):
 
     threading.Thread(
         target=run_index,
-        args=(run_id, files, llm, emb, store_id, category, max_parallel, auto_attach, overwrite, as_user),
+        kwargs={
+            "run_id": run_id,
+            "files": files,
+            "llm_credential": llm,
+            "embedding_credential": emb,
+            "store_id": store_id,
+            "category": category,
+            "max_parallel": max_parallel,
+            "as_user": as_user,
+        },
         daemon=True,
     ).start()
 
