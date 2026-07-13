@@ -5,6 +5,20 @@ from .base import SqlRepository, json_text
 
 
 class GenerationRepository(SqlRepository):
+    def active_generation(self, store_id: str) -> dict | None:
+        rows = self.db.execute_query(
+            """SELECT TOP 1 s.active_generation_id AS generation_id,
+                                            g.embedding_dimensions,g.ontology_version,g.extractor_version,
+                                            r.embedding_credential,g.[state]
+               FROM nexus.search_store s
+               JOIN nexus.index_generation g
+                 ON g.generation_id=s.active_generation_id AND g.store_id=s.store_id
+                             JOIN nexus.index_run r ON r.run_id=g.run_id
+               WHERE s.store_id=? AND g.[state]='active'""",
+            (store_id,),
+        )
+        return rows[0] if rows else None
+
     def create_run_and_generation(
         self,
         *,
@@ -20,6 +34,7 @@ class GenerationRepository(SqlRepository):
         extractor_version: str,
         embedding_dimensions: int,
         input_snapshot: dict,
+        base_generation_id: str | None = None,
     ) -> None:
         """Atomically establish both audit rows before the workflow starts."""
         self.db.execute_non_query(
@@ -32,9 +47,9 @@ class GenerationRepository(SqlRepository):
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, SYSUTCDATETIME(), SYSUTCDATETIME());
 
                    INSERT INTO nexus.index_generation
-                       (generation_id, run_id, store_id, [state], quality_state,
+                       (generation_id, run_id, store_id, base_generation_id, [state], quality_state,
                         ontology_version, extractor_version, embedding_dimensions)
-                   VALUES (?, ?, ?, 'building', 'pending', ?, ?, ?);
+                   VALUES (?, ?, ?, ?, 'building', 'pending', ?, ?, ?);
                    COMMIT TRANSACTION;
                END TRY
                BEGIN CATCH
@@ -44,7 +59,7 @@ class GenerationRepository(SqlRepository):
             (
                 run_id, generation_id, as_user, store_id, category,
                 llm_credential, embedding_credential, int(max_parallel), json_text(input_snapshot),
-                generation_id, run_id, store_id, ontology_version, extractor_version,
+                generation_id, run_id, store_id, base_generation_id, ontology_version, extractor_version,
                 int(embedding_dimensions),
             ),
         )
@@ -86,7 +101,12 @@ class GenerationRepository(SqlRepository):
             (state, generation_id),
         )
 
-    def activate(self, store_id: str, generation_id: str) -> None:
+    def activate(
+        self,
+        store_id: str,
+        generation_id: str,
+        expected_base_generation_id: str | None = None,
+    ) -> None:
         """Atomically publish a quality-passed generation and retire its predecessor."""
         self.db.execute_non_query(
             """BEGIN TRY
@@ -99,6 +119,12 @@ class GenerationRepository(SqlRepository):
 
                    IF @@ROWCOUNT <> 1
                        THROW 51000, 'search store does not exist', 1;
+
+                   IF NOT (
+                       (@previous IS NULL AND ? IS NULL)
+                       OR @previous=?
+                   )
+                       THROW 51003, 'active generation changed while candidate was building', 1;
 
                    IF NOT EXISTS (
                        SELECT 1 FROM nexus.index_generation WITH (UPDLOCK, HOLDLOCK)
@@ -161,6 +187,7 @@ class GenerationRepository(SqlRepository):
                END CATCH""",
             (
                 store_id,
+                expected_base_generation_id, expected_base_generation_id,
                 generation_id, store_id,
                 generation_id,
                 generation_id, store_id,

@@ -23,6 +23,7 @@ export interface CreateIndexResult {
   run_id: string
   store_id: string
   files: string[]
+  mode: 'merge_documents'
 }
 
 // —— DAG 结构（来自 index_run.dag，前端据此画图；不从 node 表拼依赖）——

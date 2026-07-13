@@ -110,14 +110,15 @@ export async function getGraphNeighborhood(nodeId: string, depth = 3, collection
   const q = new URLSearchParams({ depth: String(depth) })
   if (collection) q.set('collection', collection)
   const url = await backendUrl('graph/neighborhood/' + encodeURIComponent(nodeId) + '?' + q.toString())
-  return service.get(url, true, false)
+  // The caller handles 409 stale-Generation recovery and shows a specific message.
+  return service.get(url, true, false, 'application/json', true)
 }
 
 export async function getNodeDetail(nodeId: string, collection?: string): Promise<NodeDetail> {
   const q = new URLSearchParams()
   if (collection) q.set('collection', collection)
   const url = await backendUrl('graph/node/' + encodeURIComponent(nodeId) + (q.size ? '?' + q.toString() : ''))
-  return service.get(url, true, false)
+  return service.get(url, true, false, 'application/json', true)
 }
 
 export async function getBlock(blockKey: string, collection?: string): Promise<BlockView> {

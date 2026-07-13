@@ -3,10 +3,49 @@ from __future__ import annotations
 
 from services.workflow import NodeContext, NodeResult
 
-from .chunker import chunk_document
+from .chunker import chunk_document, title_from_filename
 from .extractor import ExtractionValidationError
 
 _EMBED_BATCH = 64
+
+
+def op_seed_candidate(ctx: NodeContext) -> NodeResult:
+    base_generation_id = ctx.res("base_generation_id")
+    retained_document_ids = set(ctx.res("retained_document_ids") or ())
+    clone_map = ctx.res("documents").clone_documents(
+        base_generation_id,
+        ctx.res("generation_id"),
+        retained_document_ids,
+    )
+    facts = ctx.res("assertions").clone_retained_facts(
+        base_generation_id,
+        ctx.res("generation_id"),
+        clone_map,
+    )
+    copied = ctx.res("search").clone_blocks(
+        ctx.res("store_id"),
+        base_generation_id,
+        ctx.res("generation_id"),
+        clone_map.get("blocks") or {},
+        ctx.res("dimensions"),
+    )
+    if copied != int(clone_map.get("block_count") or 0):
+        raise RuntimeError(
+            f"AI Search copied {copied} of {clone_map.get('block_count', 0)} retained blocks"
+        )
+    target_keys = [item["target_block_key"] for item in (clone_map.get("blocks") or {}).values()]
+    ctx.res("documents").set_search_state(target_keys, "written")
+    return NodeResult(
+        output={
+            "documents": int(clone_map.get("documents") or 0),
+            "blocks": int(clone_map.get("block_count") or 0),
+            "assertions": int(facts.get("assertions") or 0),
+        },
+        value=(
+            f"继承 {clone_map.get('documents', 0)} 文档 / "
+            f"{clone_map.get('block_count', 0)} 块 / {facts.get('assertions', 0)} 断言"
+        ),
+    )
 
 
 def op_parse(ctx: NodeContext) -> NodeResult:
@@ -17,7 +56,7 @@ def op_parse(ctx: NodeContext) -> NodeResult:
     for item in ctx.res("files") or []:
         ctx.raise_if_cancelled()
         filename, text, file_category = item
-        title = filename.rsplit(".", 1)[0].strip() or filename
+        title = title_from_filename(filename)
         bundle = chunk_document(
             text=text,
             category=file_category,
@@ -30,13 +69,15 @@ def op_parse(ctx: NodeContext) -> NodeResult:
         seen_documents.add(bundle.document.document_id)
         bundles.append(bundle)
         blocks.extend(bundle.blocks)
-    if not blocks:
-        raise ValueError("full generation contains no blocks")
+    inherited = ctx.dep("seed_candidate") or {}
+    if not blocks and not int(inherited.get("blocks") or 0):
+        raise ValueError("candidate generation contains no blocks")
     for bundle in bundles:
         ctx.raise_if_cancelled()
         documents.save_bundle(bundle)
     ctx.res("generations").set_counts(ctx.run_id, ctx.res("generation_id"), {
-        "documents": len(bundles), "blocks": len(blocks),
+        "documents": int(inherited.get("documents") or 0) + len(bundles),
+        "blocks": int(inherited.get("blocks") or 0) + len(blocks),
     })
     return NodeResult(
         output={"blocks": blocks},
@@ -147,7 +188,10 @@ def op_derive_graph(ctx: NodeContext) -> NodeResult:
 def op_quality_gate(ctx: NodeContext) -> NodeResult:
     generation_id = ctx.res("generation_id")
     dimensions = ctx.res("dimensions")
-    ai_count = ctx.res("search").count_generation(ctx.res("store_id"), generation_id, dimensions)
+    expected = ctx.res("documents").manifest_written_count(generation_id)
+    ai_count = ctx.res("search").wait_for_generation_count(
+        ctx.res("store_id"), generation_id, expected, dimensions,
+    )
     passed, metrics = ctx.res("quality").evaluate(ctx.run_id, generation_id, ai_count)
     failed = [metric.code for metric in metrics if not metric.passed]
     if not passed:
@@ -165,7 +209,11 @@ def op_quality_gate(ctx: NodeContext) -> NodeResult:
 
 
 def op_activate(ctx: NodeContext) -> NodeResult:
-    ctx.res("generations").activate(ctx.res("store_id"), ctx.res("generation_id"))
+    ctx.res("generations").activate(
+        ctx.res("store_id"),
+        ctx.res("generation_id"),
+        ctx.res("base_generation_id"),
+    )
     quality = ctx.dep("quality_gate") or {}
     return NodeResult(
         output={

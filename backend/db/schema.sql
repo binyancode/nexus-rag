@@ -122,6 +122,7 @@ CREATE TABLE nexus.index_generation (
     generation_id          nvarchar(64)  NOT NULL CONSTRAINT PK_index_generation PRIMARY KEY,
     run_id                 nvarchar(64)  NOT NULL,
     store_id               nvarchar(64)  NOT NULL,
+    base_generation_id     nvarchar(64)  NULL,
     state                  nvarchar(20)  NOT NULL CONSTRAINT DF_generation_state DEFAULT 'building',
     quality_state          nvarchar(20)  NOT NULL CONSTRAINT DF_generation_quality DEFAULT 'pending',
     ontology_version       nvarchar(50)  NOT NULL,
@@ -147,6 +148,7 @@ CREATE TABLE nexus.index_generation (
     CONSTRAINT CK_generation_dimensions CHECK (embedding_dimensions > 0)
 );
 CREATE INDEX IX_generation_store_state ON nexus.index_generation(store_id, state, created_at DESC);
+CREATE INDEX IX_generation_base ON nexus.index_generation(store_id, base_generation_id, created_at DESC);
 CREATE UNIQUE INDEX UX_generation_one_active_store
     ON nexus.index_generation(store_id)
     WHERE state = 'active';

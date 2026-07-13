@@ -6,6 +6,20 @@ from hashlib import sha256
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
+def make_document_version_id(generation_id: str, document_id: str, content_hash: str) -> str:
+    return "dv_" + sha256(
+        f"{generation_id}\0{document_id}\0{content_hash}".encode("utf-8")
+    ).hexdigest()[:40]
+
+
+def make_block_key(generation_id: str, block_id: str) -> str:
+    value = f"{generation_id}:{block_id}"
+    if len(value) <= 450:
+        return value
+    digest = sha256(block_id.encode("utf-8")).hexdigest()[:48]
+    return f"{generation_id}:blk_{digest}"
+
+
 class StrictModel(BaseModel):
     """Base contract used at all domain boundaries."""
 

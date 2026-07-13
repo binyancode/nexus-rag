@@ -86,14 +86,14 @@ SLIDES = [
         "title": "Generation 原子发布",
         "section": "事实与存储",
         "fn": diagrams.generation,
-        "notes": "索引构建采用完整隔离代次。\n质量通过之前，新数据不可查；失败或取消也不污染线上。\n激活事务一次更新新旧代次状态和 Store 指针。",
+        "notes": "用户可以有一份上传一份；同类别同标题表示替换。\n系统继承未变文档并组成完整候选代次，质量通过之前不可查。\n激活采用 Base Generation 比较并交换，避免并发运行互相覆盖。",
     },
     {
         "key": "index_workflow",
         "title": "索引工作流",
         "section": "索引构建",
         "fn": diagrams.index_workflow,
-        "notes": "解析后，向量写入和逐块抽取并行。\n归一、持久化和 Graph 派生集中执行。\n通用 Workflow 负责依赖、取消、状态和 Token 记录。",
+        "notes": "先复制未变文档的事实、原文和向量，只解析新增或替换文档。\n新旧事实统一归一后重新派生完整 Graph。\n通用 Workflow 负责依赖、取消、状态和 Token 记录。",
     },
     {
         "key": "extraction_guardrails",

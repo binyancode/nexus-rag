@@ -86,8 +86,8 @@ async def create_index(request: Request, reg: StoreCollectionRepository = None):
         store_credential : azure_ai_search 凭据名（block store）
         index_name       : 目标索引（必填）
         category         : 必填（进入文档与 Block 元数据）
-        auto_attach      : 兼容字段，已忽略
-        overwrite        : 兼容字段，已忽略
+        默认语义：按 category + 文件标题新增或替换文档；未上传文档继承到新代次
+        auto_attach / overwrite : 兼容字段，已忽略
         max_parallel     : int（DAG 并行度，默认 8）
     """
     body = await request.json()
@@ -120,7 +120,17 @@ async def create_index(request: Request, reg: StoreCollectionRepository = None):
 
     # 确保 store 注册（store_id 由 AI Search 凭据名派生）
     store_id = _store_id_of(store_credential)
-    if reg.get_store(store_id) is None or index_name:
+    existing_store = reg.get_store(store_id)
+    if (
+        existing_store is not None
+        and existing_store.active_generation_id
+        and existing_store.index_name != index_name
+    ):
+        return {
+            "state": "error",
+            "message": "该 Store 已有活动代次，增量索引不能切换到另一个 AI Search 索引名",
+        }
+    if existing_store is None or index_name:
         reg.upsert_store(SearchStore(
             store_id=store_id, name=store_credential, credential_name=store_credential,
             index_name=index_name, kind="block", is_default=(reg.default_store() is None),
@@ -153,7 +163,12 @@ async def create_index(request: Request, reg: StoreCollectionRepository = None):
         daemon=True,
     ).start()
 
-    return {"run_id": run_id, "store_id": store_id, "files": [f[0] for f in files]}
+    return {
+        "run_id": run_id,
+        "store_id": store_id,
+        "files": [f[0] for f in files],
+        "mode": "merge_documents",
+    }
 
 
 @router.post("/runs/{run_id}/cancel")

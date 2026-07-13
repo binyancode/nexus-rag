@@ -190,7 +190,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   getGraph, getEntityCatalog, getGraphNeighborhood, getNodeDetail, getBlock,
   type GraphNode, type GraphEdge, type NodeDetail, type BlockView,
@@ -540,8 +540,9 @@ async function select(id: string) {
   selectedId.value = id
   try {
     detail.value = await getNodeDetail(id, activeCollection.value)
-  } catch {
+  } catch (error) {
     detail.value = null
+    await handleGraphError(error)
   }
 }
 
@@ -636,8 +637,8 @@ async function loadCenter(id: string) {
     progress.value = 20
     await relayout('progressive')
     focusNeighborhood(id, 2)
-  } catch {
-    /* 拦截器已提示 */
+  } catch (error) {
+    await handleGraphError(error)
   } finally {
     loading.value = false
   }
@@ -669,8 +670,8 @@ async function expandNode(id: string) {
     loading.value = false
     progress.value = 20
     await layoutExpandedNodes(newIds, id)
-  } catch {
-    /* 拦截器已提示 */
+  } catch (error) {
+    await handleGraphError(error)
   } finally {
     loading.value = false
   }
@@ -691,8 +692,8 @@ async function expandSelectedAll() {
     progress.value = 20
     await relayout('hidden')
     focusEntity(id)
-  } catch {
-    /* 拦截器已提示 */
+  } catch (error) {
+    await handleGraphError(error)
   } finally {
     loading.value = false
   }
@@ -716,6 +717,17 @@ async function expandAll() {
   } finally {
     loading.value = false
   }
+}
+
+async function handleGraphError(error: unknown) {
+  const response = (error as { response?: { status?: number; data?: { message?: string } } })?.response
+  if (response?.status === 409) {
+    await loadCatalog(true)
+    ElMessage.warning(response.data?.message || '活动索引已更新，知识图谱已刷新')
+    return
+  }
+  const message = response?.data?.message || (error instanceof Error ? error.message : '知识图谱加载失败')
+  ElMessage.error(message)
 }
 
 async function openBlock(blockKey: string) {

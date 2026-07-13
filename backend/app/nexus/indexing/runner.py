@@ -1,7 +1,6 @@
 """Entry point for isolated full-generation index runs."""
 from __future__ import annotations
 
-import hashlib
 import time
 import uuid
 
@@ -20,6 +19,7 @@ from nexus.infrastructure import (
 from utils.logger import get_logger
 
 from .extractor import AssertionExtractor
+from .chunker import content_hash, document_id, title_from_filename
 from .prompts import EXTRACTOR_VERSION, ONTOLOGY_VERSION
 from .recorder import IndexRunRecorder
 from .resolution import ResolutionService
@@ -27,6 +27,43 @@ from .workflow import build_index_workflow, build_seed
 
 _logger = get_logger("nexus.indexing.runner")
 _RUNS: dict[str, cancellation_token] = {}
+
+
+def classify_files(
+    files: list[tuple[str, str, str]],
+    base_documents: dict[str, dict],
+) -> tuple[list[tuple[str, str, str]], set[str], list[dict]]:
+    """Return changed uploads, retained document IDs, and an auditable classification."""
+    incoming: list[dict] = []
+    incoming_ids: set[str] = set()
+    for filename, text, file_category in files:
+        title = title_from_filename(filename)
+        doc_id = document_id(file_category, title)
+        if doc_id in incoming_ids:
+            raise ValueError(f"duplicate logical document in upload: {title}")
+        incoming_ids.add(doc_id)
+        incoming.append({
+            "filename": filename,
+            "title": title,
+            "category": file_category,
+            "document_id": doc_id,
+            "content_hash": content_hash(
+                (text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+            ),
+        })
+    retained_document_ids = set(base_documents) - incoming_ids
+    changed_files: list[tuple[str, str, str]] = []
+    classifications: list[dict] = []
+    for source, item in zip(files, incoming):
+        previous = base_documents.get(item["document_id"])
+        if previous and previous["content_hash"] == item["content_hash"]:
+            retained_document_ids.add(item["document_id"])
+            action = "unchanged"
+        else:
+            changed_files.append(source)
+            action = "replace" if previous else "add"
+        classifications.append({**item, "action": action})
+    return changed_files, retained_document_ids, classifications
 
 
 def cancel_run(run_id: str) -> bool:
@@ -60,6 +97,31 @@ def run_index(
         file_categories = sorted({file_category for _, _, file_category in files})
         run_category = file_categories[0] if len(file_categories) == 1 else "MULTI"
         generations = services[GenerationRepository]
+        documents = services[DocumentRepository]
+        base = generations.active_generation(store_id)
+        base_generation_id = base["generation_id"] if base else None
+        if base and int(base["embedding_dimensions"]) != int(dimensions):
+            raise ValueError(
+                "the active Generation uses a different embedding dimension; "
+                "use an explicit replace-all rebuild to change embedding models"
+            )
+        if base and base.get("embedding_credential") != embedding_credential:
+            raise ValueError(
+                "the active Generation uses a different embedding credential; "
+                "incremental indexing cannot mix vector models"
+            )
+        if base and (
+            base.get("ontology_version") != ONTOLOGY_VERSION
+            or base.get("extractor_version") != EXTRACTOR_VERSION
+        ):
+            raise ValueError(
+                "the active Generation uses a different ontology/extractor version; "
+                "a replace-all rebuild is required before incremental indexing"
+            )
+        base_documents = {
+            row["document_id"]: row for row in documents.generation_documents(base_generation_id)
+        }
+        changed_files, retained_document_ids, classifications = classify_files(files, base_documents)
         generations.create_run_and_generation(
             run_id=run_id,
             generation_id=generation_id,
@@ -73,16 +135,12 @@ def run_index(
             extractor_version=EXTRACTOR_VERSION,
             embedding_dimensions=dimensions,
             input_snapshot={
-                "files": [
-                    {
-                        "filename": filename,
-                        "category": file_category,
-                        "content_hash": hashlib.sha256(text.encode("utf-8")).hexdigest(),
-                    }
-                    for filename, text, file_category in files
-                ],
-                "full_generation": True,
+                "files": classifications,
+                "mode": "merge_documents",
+                "base_generation_id": base_generation_id,
+                "retained_document_ids": sorted(retained_document_ids),
             },
+            base_generation_id=base_generation_id,
         )
         recorder = IndexRunRecorder(generations, generation_id)
         chat = make_chat(llm_credential)
@@ -91,7 +149,9 @@ def run_index(
         attempts = services[ExtractionAttemptRepository]
         assertions = services[AssertionRepository]
         shared = {
-            "files": files,
+            "files": changed_files,
+            "base_generation_id": base_generation_id,
+            "retained_document_ids": retained_document_ids,
             "category": category,
             "store_id": store_id,
             "generation_id": generation_id,
@@ -99,7 +159,7 @@ def run_index(
             "chat": chat,
             "embedder": embedder,
             "generations": generations,
-            "documents": services[DocumentRepository],
+            "documents": documents,
             "assertions": assertions,
             "quality": services[QualityRepository],
             "search": search,

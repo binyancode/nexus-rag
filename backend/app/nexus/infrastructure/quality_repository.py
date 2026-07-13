@@ -72,8 +72,38 @@ class QualityRepository(SqlRepository):
                 (SELECT COUNT_BIG(*) FROM nexus.block_manifest
                  WHERE generation_id=? AND search_state='written') AS manifest_written,
                 (SELECT COUNT_BIG(*) FROM nexus.legal_assertion
-                 WHERE generation_id=? AND [state]='accepted') AS accepted_assertions""",
-            (generation_id,) * 11,
+                 WHERE generation_id=? AND [state]='accepted') AS accepted_assertions,
+                (SELECT COUNT_BIG(*) FROM nexus.legal_assertion la
+                 WHERE la.generation_id=? AND NOT EXISTS (
+                     SELECT 1 FROM nexus.document_version dv
+                     WHERE dv.document_version_id=la.document_version_id
+                       AND dv.generation_id=la.generation_id
+                 )) AS assertion_version_mismatch,
+                (SELECT COUNT_BIG(*) FROM nexus.assertion_evidence ev
+                 JOIN nexus.legal_assertion la ON la.assertion_id=ev.assertion_id
+                 WHERE la.generation_id=? AND NOT EXISTS (
+                     SELECT 1 FROM nexus.block_manifest bm
+                     WHERE bm.block_key=ev.block_key AND bm.generation_id=la.generation_id
+                 )) AS evidence_block_mismatch,
+                (SELECT COUNT_BIG(*) FROM nexus.entity_mention em
+                 WHERE em.generation_id=? AND NOT EXISTS (
+                     SELECT 1 FROM nexus.block_manifest bm
+                     WHERE bm.block_key=em.block_key AND bm.generation_id=em.generation_id
+                       AND bm.document_version_id=em.document_version_id
+                 )) AS entity_mention_mismatch,
+                (SELECT COUNT_BIG(*) FROM nexus.action_mention am
+                 WHERE am.generation_id=? AND NOT EXISTS (
+                     SELECT 1 FROM nexus.block_manifest bm
+                     WHERE bm.block_key=am.block_key AND bm.generation_id=am.generation_id
+                       AND bm.document_version_id=am.document_version_id
+                 )) AS action_mention_mismatch,
+                (SELECT COUNT_BIG(*) FROM nexus.assertion_entity ae
+                 JOIN nexus.legal_assertion la ON la.assertion_id=ae.assertion_id
+                 WHERE la.generation_id=? AND ae.mention_id IS NOT NULL AND NOT EXISTS (
+                     SELECT 1 FROM nexus.entity_mention em
+                     WHERE em.mention_id=ae.mention_id AND em.generation_id=la.generation_id
+                 )) AS assertion_mention_mismatch""",
+            (generation_id,) * 16,
         )
         r = rows[0]
         unresolved = (
@@ -104,6 +134,11 @@ class QualityRepository(SqlRepository):
             self._zero("accepted_participants_resolved", unresolved),
             self._zero("accepted_assertions_have_primary_evidence", int(r["assertions_without_primary"] or 0)),
             self._zero("graph_edges_have_support", int(r["edges_without_support"] or 0)),
+            self._zero("assertion_versions_in_generation", int(r["assertion_version_mismatch"] or 0)),
+            self._zero("evidence_blocks_in_generation", int(r["evidence_block_mismatch"] or 0)),
+            self._zero("entity_mentions_in_generation", int(r["entity_mention_mismatch"] or 0)),
+            self._zero("action_mentions_in_generation", int(r["action_mention_mismatch"] or 0)),
+            self._zero("assertion_mentions_in_generation", int(r["assertion_mention_mismatch"] or 0)),
             QualityMetric(
                 code="ai_search_manifest_count_match",
                 passed=int(ai_search_count) == written,

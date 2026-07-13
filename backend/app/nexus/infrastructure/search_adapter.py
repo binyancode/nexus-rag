@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import time
 
 from core.services import services
 from nexus.domain import Block
@@ -67,6 +68,8 @@ class GenerationSearchAdapter(SqlRepository):
                 name="vector",
                 type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
                 searchable=True,
+                hidden=False,
+                stored=True,
                 vector_search_dimensions=int(dimensions),
                 vector_search_profile_name=_VECTOR_PROFILE,
             ),
@@ -91,6 +94,10 @@ class GenerationSearchAdapter(SqlRepository):
                         f"existing AI Search vector dimension {existing_dimensions} "
                         f"does not match generation dimension {dimensions}"
                     )
+                # Incremental candidates inherit unchanged Block vectors. Azure AI Search
+                # makes vector fields non-retrievable by default, so explicitly repair old
+                # indexes as well as setting the flag for newly-created indexes.
+                existing_vector.hidden = False
             merged.extend(field for name, field in incoming.items() if name not in existing_names)
             current.fields = merged
             if current.vector_search is None:
@@ -129,6 +136,68 @@ class GenerationSearchAdapter(SqlRepository):
             written += len(results)
         return written
 
+    def clone_blocks(
+        self,
+        store_id: str,
+        source_generation_id: str | None,
+        target_generation_id: str,
+        block_map: dict[str, dict],
+        dimensions: int,
+    ) -> int:
+        """Copy unchanged Search documents, including their existing vectors."""
+        if not source_generation_id or not block_map:
+            return 0
+        client = self._search_client(store_id, dimensions)
+        select = [
+            "generation_id", "block_key", "block_id", "document_id", "document_version_id",
+            "category", "title", "text", "parent_block_id", "article_no", "paragraph_no",
+            "item_no", "heading_path", "ordinal", "text_hash", "vector",
+        ]
+        rows = client.search(
+            search_text="*",
+            filter=f"generation_id eq {_odata(source_generation_id)}",
+            select=select,
+        )
+        docs: list[dict] = []
+        found: set[str] = set()
+        for raw in rows:
+            row = dict(raw)
+            mapped = block_map.get(row.get("block_key"))
+            if not mapped:
+                continue
+            vector = list(row.get("vector") or [])
+            if len(vector) != int(dimensions):
+                raise ValueError(
+                    f"base AI Search vector is unavailable or has the wrong dimension: {row.get('block_key')}"
+                )
+            target_block_key = mapped["target_block_key"]
+            row.update({
+                "id": self.key_of(target_block_key),
+                "generation_id": target_generation_id,
+                "block_key": target_block_key,
+                "document_version_id": mapped["target_document_version_id"],
+                "vector": vector,
+            })
+            docs.append({field: row.get(field) for field in ["id", *select]})
+            found.add(mapped["source_block_key"])
+        missing = sorted(set(block_map) - found)
+        if missing:
+            preview = ", ".join(missing[:5])
+            raise ValueError(
+                f"base AI Search generation is missing {len(missing)} retained blocks: {preview}"
+            )
+        written = 0
+        for offset in range(0, len(docs), 1000):
+            results = client.merge_or_upload_documents(documents=docs[offset:offset + 1000])
+            failed = [result for result in results if not getattr(result, "succeeded", False)]
+            if failed:
+                raise RuntimeError("AI Search rejected retained block copies: " + "; ".join(
+                    f"{getattr(result, 'key', '?')}: {getattr(result, 'error_message', 'unknown error')}"
+                    for result in failed
+                ))
+            written += len(results)
+        return written
+
     def count_generation(self, store_id: str, generation_id: str, dimensions: int = 1536) -> int:
         client = self._search_client(store_id, dimensions)
         rows = client.search(
@@ -136,6 +205,24 @@ class GenerationSearchAdapter(SqlRepository):
             select=["id"], top=1, include_total_count=True,
         )
         return int(rows.get_count() or 0)
+
+    def wait_for_generation_count(
+        self,
+        store_id: str,
+        generation_id: str,
+        expected: int,
+        dimensions: int = 1536,
+        attempts: int = 12,
+    ) -> int:
+        """Wait for Azure Search's eventually-consistent count to reach the manifest count."""
+        actual = 0
+        for attempt in range(max(1, int(attempts))):
+            actual = self.count_generation(store_id, generation_id, dimensions)
+            if actual == int(expected):
+                return actual
+            if attempt + 1 < attempts:
+                time.sleep(1)
+        return actual
 
     def delete_generation(self, store_id: str, generation_id: str, dimensions: int = 1536) -> int:
         client = self._search_client(store_id, dimensions)

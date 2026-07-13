@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
 
 from core.api_handler import api_handler
 from nexus.infrastructure import GenerationSearchAdapter, GraphRepository, StoreCollectionRepository
@@ -84,7 +85,20 @@ async def graph_neighborhood(
         depth = 2
     depth = 0 if depth == 0 else max(1, min(10, depth))
     scope = _scope(request, registry)
-    nodes, edges, expandable = graph.neighborhood(scope, node_id, depth)
+    try:
+        nodes, edges, expandable = graph.neighborhood(scope, node_id, depth)
+    except ValueError as exc:
+        return JSONResponse(
+            {
+                "state": "stale_generation",
+                "message": "活动索引代次已变化，请刷新知识图谱后重试",
+                "node_id": node_id,
+                "collection": scope.collection_id,
+                "generation_scope": scope.generation_scope,
+                "detail": str(exc),
+            },
+            status_code=409,
+        )
     return {
         "nodes": nodes,
         "edges": edges,
@@ -109,7 +123,20 @@ async def node_detail(
 ):
     node_id = node_id or request.path_params.get("node_id")
     scope = _scope(request, registry)
-    detail = graph.node_detail(scope, node_id)
+    try:
+        detail = graph.node_detail(scope, node_id)
+    except ValueError as exc:
+        return JSONResponse(
+            {
+                "state": "stale_generation",
+                "message": "活动索引代次已变化，请刷新知识图谱后重试",
+                "node_id": node_id,
+                "collection": scope.collection_id,
+                "generation_scope": scope.generation_scope,
+                "detail": str(exc),
+            },
+            status_code=409,
+        )
     detail["collection"] = scope.collection_id
     return detail
 

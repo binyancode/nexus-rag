@@ -24,6 +24,186 @@ def signature_hash(value: dict) -> str:
 
 
 class AssertionRepository(SqlRepository):
+    def clone_retained_facts(
+        self,
+        source_generation_id: str | None,
+        target_generation_id: str,
+        clone_map: dict,
+    ) -> dict[str, int]:
+        """Clone facts whose complete evidence set belongs to retained documents."""
+        block_map: dict[str, dict] = clone_map.get("blocks") or {}
+        version_map: dict[str, str] = clone_map.get("versions") or {}
+        if not source_generation_id or not block_map:
+            return {"aliases": 0, "entity_mentions": 0, "action_mentions": 0, "assertions": 0}
+
+        # Preserve generation-scoped aliases used by the retained facts.  Aliases are
+        # vocabulary metadata without direct document provenance, so carrying the base
+        # generation's set is the conservative behavior.
+        alias_rows = self.db.execute_query(
+            """SELECT entity_id,alias,normalized_alias,source,confidence
+               FROM nexus.entity_alias WHERE generation_id=?""",
+            (source_generation_id,),
+        )
+        self.db.execute_many(
+            """INSERT INTO nexus.entity_alias
+                   (entity_id,generation_id,alias,normalized_alias,source,confidence)
+               VALUES (?,?,?,?,?,?)""",
+            [(
+                row["entity_id"], target_generation_id, row["alias"],
+                row["normalized_alias"], row["source"], row.get("confidence"),
+            ) for row in alias_rows],
+        )
+
+        source_entity_mentions = self.db.execute_query(
+            """SELECT mention_id,document_version_id,block_key,local_id,mention_text,
+                      canonical_name,entity_type,start_offset,end_offset,entity_id,
+                      resolution_state,confidence,candidates
+               FROM nexus.entity_mention WHERE generation_id=?
+               ORDER BY mention_id""",
+            (source_generation_id,),
+        )
+        entity_rows: list[tuple] = []
+        entity_keys: list[tuple[int, str, str]] = []
+        for row in source_entity_mentions:
+            mapped = block_map.get(row["block_key"])
+            if not mapped:
+                continue
+            entity_rows.append((
+                target_generation_id, mapped["target_document_version_id"],
+                mapped["target_block_key"], row["local_id"], row["mention_text"],
+                row["canonical_name"], row["entity_type"], row.get("start_offset"),
+                row.get("end_offset"), row.get("entity_id"), row["resolution_state"],
+                row.get("confidence"), row.get("candidates"),
+            ))
+            entity_keys.append((int(row["mention_id"]), mapped["target_block_key"], row["local_id"]))
+        self.bulk_insert_entity_mentions(entity_rows)
+        target_mentions = self.mention_ids(target_generation_id)
+        mention_map = {
+            old_id: target_mentions[(block_key, local_id)]
+            for old_id, block_key, local_id in entity_keys
+        }
+
+        source_action_mentions = self.db.execute_query(
+            """SELECT document_version_id,block_key,local_id,canonical_text,verb,
+                      signature,action_id,resolution_state,confidence
+               FROM nexus.action_mention WHERE generation_id=?
+               ORDER BY action_mention_id""",
+            (source_generation_id,),
+        )
+        action_rows: list[tuple] = []
+        for row in source_action_mentions:
+            mapped = block_map.get(row["block_key"])
+            if not mapped:
+                continue
+            action_rows.append((
+                target_generation_id, mapped["target_document_version_id"],
+                mapped["target_block_key"], row["local_id"], row["canonical_text"],
+                row["verb"], row["signature"], row.get("action_id"),
+                row["resolution_state"], row.get("confidence"),
+            ))
+        self.bulk_insert_action_mentions(action_rows)
+
+        source_assertions = self.db.execute_query(
+            """SELECT la.assertion_id,la.document_version_id,la.assertion_kind,
+                      la.predicate,la.modality,la.action_id,la.condition_text,
+                      la.exception_text,la.scope_text,la.payload,la.assertion_hash,
+                      la.confidence,la.[state],la.source,la.locked
+               FROM nexus.legal_assertion la
+               WHERE la.generation_id=?
+                 AND EXISTS (
+                     SELECT 1 FROM nexus.assertion_evidence ev
+                     WHERE ev.assertion_id=la.assertion_id AND ev.block_key IN (
+                         SELECT bm.block_key FROM nexus.block_manifest bm
+                         WHERE bm.generation_id=?
+                     )
+                 )
+               ORDER BY la.assertion_id""",
+            (source_generation_id, source_generation_id),
+        )
+        source_evidence = self.db.execute_query(
+            """SELECT ev.assertion_id,ev.block_key,ev.evidence_role,ev.quote,
+                      ev.quote_start,ev.quote_end,ev.confidence
+               FROM nexus.assertion_evidence ev
+               JOIN nexus.legal_assertion la ON la.assertion_id=ev.assertion_id
+               WHERE la.generation_id=?
+               ORDER BY ev.assertion_id,
+                        CASE ev.evidence_role WHEN 'primary' THEN 0 ELSE 1 END,
+                        ev.evidence_id""",
+            (source_generation_id,),
+        )
+        retained_evidence: dict[str, list[dict]] = defaultdict(list)
+        for row in source_evidence:
+            if row["block_key"] in block_map:
+                retained_evidence[row["assertion_id"]].append(row)
+
+        assertion_map: dict[str, str] = {}
+        assertion_rows: list[tuple] = []
+        assertion_meta: dict[str, dict] = {}
+        hashes: set[str] = set()
+        for row in source_assertions:
+            evidence = retained_evidence.get(row["assertion_id"]) or []
+            if not evidence:
+                continue
+            if row["assertion_hash"] in hashes:
+                raise ValueError(f"duplicate retained assertion hash: {row['assertion_hash']}")
+            hashes.add(row["assertion_hash"])
+            new_id = "ast_" + uuid.uuid4().hex
+            assertion_map[row["assertion_id"]] = new_id
+            owner_version = version_map.get(row["document_version_id"])
+            if owner_version is None:
+                owner_version = block_map[evidence[0]["block_key"]]["target_document_version_id"]
+            assertion_rows.append((
+                new_id, target_generation_id, owner_version, row["assertion_kind"],
+                row["predicate"], row["modality"], row.get("action_id"),
+                row.get("condition_text"), row.get("exception_text"), row.get("scope_text"),
+                row.get("payload"), row["assertion_hash"], row["confidence"],
+                row["state"], row["source"], int(bool(row["locked"])),
+            ))
+            assertion_meta[row["assertion_id"]] = row
+        self.db.execute_many(
+            """INSERT INTO nexus.legal_assertion
+                   (assertion_id,generation_id,document_version_id,assertion_kind,
+                    predicate,modality,action_id,condition_text,exception_text,scope_text,
+                    payload,assertion_hash,confidence,[state],source,locked)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            assertion_rows,
+        )
+
+        participant_rows = self.db.execute_query(
+            """SELECT ae.assertion_id,ae.role,ae.ordinal,ae.entity_id,ae.mention_id,ae.value_text
+               FROM nexus.assertion_entity ae
+               JOIN nexus.legal_assertion la ON la.assertion_id=ae.assertion_id
+               WHERE la.generation_id=?
+               ORDER BY ae.assertion_id,ae.role,ae.ordinal""",
+            (source_generation_id,),
+        )
+        self.bulk_insert_assertion_entities([(
+            assertion_map[row["assertion_id"]], row["role"], int(row["ordinal"]),
+            row.get("entity_id"), mention_map.get(int(row["mention_id"])) if row.get("mention_id") else None,
+            row["value_text"],
+        ) for row in participant_rows if row["assertion_id"] in assertion_map])
+
+        evidence_rows: list[tuple] = []
+        for old_assertion_id, new_assertion_id in assertion_map.items():
+            evidence = retained_evidence[old_assertion_id]
+            primary_index = next(
+                (index for index, row in enumerate(evidence) if row["evidence_role"] == "primary"),
+                0,
+            )
+            for index, row in enumerate(evidence):
+                evidence_rows.append((
+                    new_assertion_id, block_map[row["block_key"]]["target_block_key"],
+                    "primary" if index == primary_index else "supporting", row["quote"],
+                    int(row["quote_start"]), int(row["quote_end"]), row["confidence"],
+                ))
+        self.bulk_insert_evidence(evidence_rows)
+        return {
+            "aliases": len(alias_rows),
+            "entity_mentions": len(entity_rows),
+            "action_mentions": len(action_rows),
+            "assertions": len(assertion_rows),
+        }
+
     # ------------------------------------------------------------------
     # Bulk resolution/persistence used by the indexing reduce node
     # ------------------------------------------------------------------

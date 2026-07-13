@@ -273,7 +273,7 @@ def schema_map():
 
 
 def generation():
-    o = [titleline("新索引先在隔离代次完整构建；只有质量门禁通过，Store 才一次切换 Active Generation。")]
+    o = [titleline("用户按文档新增或替换；系统继承未变文档组成完整候选代次，通过门禁后才切换 Active Generation。")]
     # active lane
     o.append(card(70, 188, 500, 350, accent=GREEN))
     o.append(text(94, 221, "线上可查询", 15, GREEN, "800"))
@@ -293,8 +293,8 @@ def generation():
         if i < 2:
             o.append(arrowc(xs[i] + 142, 287, xs[i + 1] - 4, 287, MUTE, 2))
     o.append(rect(674, 350, 492, 138, "#FFF8F1", rx=11, stroke="#F0D5BB", sw=1))
-    o.append(text(698, 380, "原子激活事务", 14, INK, "800"))
-    tx = ["旧 A → retired", "新 B → active", "Store.active_generation_id → B"]
+    o.append(text(698, 380, "继承与原子激活", 14, INK, "800"))
+    tx = ["B.base_generation_id → A", "未上传文档从 A 继承", "比较 A 后切换 Active → B"]
     for i, row in enumerate(tx):
         o.append(circle(704, 408 + i * 24, 3, fill=ORANGE))
         o.append(text(716, 413 + i * 24, row, 12, MUTE, "700", ff=MONO))
@@ -306,22 +306,24 @@ def generation():
 
 
 def index_workflow():
-    o = [titleline("索引是一张可观测 DAG：抽取与向量写入并行，归一和派生集中执行，质量门禁决定是否发布。")]
+    o = [titleline("索引是一张可观测 DAG：先继承未变文档，只重建新增/替换文档，最后发布完整候选代次。")]
     # split
-    o.append(flow_box(70, 264, 150, 78, "结构化切块", "条 / 款 / 项稳定 ID", BLUE, "parse"))
-    o.append(arrowc(222, 303, 286, 230, BLUE, 2.3))
-    o.append(arrowc(222, 303, 286, 394, BLUE, 2.3))
-    o.append(flow_box(290, 188, 176, 84, "逐块抽取", "LLM → Entity / Action / Assertion", PURPLE, "extract"))
-    o.append(flow_box(290, 354, 176, 84, "向量化写入", "Embedding → AI Search", GREEN, "embed"))
-    o.append(arrowc(468, 230, 544, 303, PURPLE, 2.3))
-    o.append(arrowc(468, 396, 544, 303, GREEN, 2.3))
-    o.append(flow_box(548, 264, 184, 78, "精确归一", "内存去重 + 批量 SQL", TEAL, "resolve"))
-    o.append(arrowc(734, 303, 774, 303, TEAL, 2.3))
-    o.append(flow_box(778, 264, 160, 78, "派生 Graph", "Assertion → Edge", GREEN, "graph"))
-    o.append(arrowc(940, 303, 978, 303, GREEN, 2.3))
-    o.append(flow_box(982, 264, 160, 78, "质量门禁", "硬检查 + 警告", ORANGE, "quality"))
-    o.append(arrowc(1144, 303, 1180, 303, ORANGE, 2.3))
-    o.append(node(1180, 272, 70, 62, "发布", GREEN_SOFT, GREEN, tsize=12))
+    o.append(flow_box(36, 264, 130, 78, "继承文档", "事实 + 原文 + 向量", NAVY))
+    o.append(arrowc(168, 303, 198, 303, NAVY, 2.2))
+    o.append(flow_box(202, 264, 130, 78, "文档切块", "仅新增 / 替换文档", BLUE))
+    o.append(arrowc(334, 303, 374, 230, BLUE, 2.3))
+    o.append(arrowc(334, 303, 374, 394, BLUE, 2.3))
+    o.append(flow_box(378, 188, 150, 84, "逐块抽取", "LLM → Assertion", PURPLE))
+    o.append(flow_box(378, 354, 150, 84, "向量化写入", "Embedding → Search", GREEN))
+    o.append(arrowc(530, 230, 572, 303, PURPLE, 2.3))
+    o.append(arrowc(530, 396, 572, 303, GREEN, 2.3))
+    o.append(flow_box(576, 264, 160, 78, "精确归一", "新旧事实统一去重", TEAL))
+    o.append(arrowc(738, 303, 770, 303, TEAL, 2.3))
+    o.append(flow_box(774, 264, 140, 78, "重建 Graph", "完整事实 → Edge", GREEN))
+    o.append(arrowc(916, 303, 948, 303, GREEN, 2.3))
+    o.append(flow_box(952, 264, 140, 78, "质量门禁", "完整性 + 范围", ORANGE))
+    o.append(arrowc(1094, 303, 1128, 303, ORANGE, 2.3))
+    o.append(node(1132, 272, 104, 62, "原子发布", GREEN_SOFT, GREEN, tsize=12))
     # detail row
     details = [
         ("抽取并行", "每个 Block 一个节点；原始输出、错误和 Token 全部留痕。", PURPLE, 70),

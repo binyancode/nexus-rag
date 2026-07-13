@@ -7,6 +7,7 @@ import unicodedata
 from dataclasses import dataclass
 
 from nexus.domain import Block, Document, DocumentBundle, DocumentVersion
+from nexus.domain.documents import make_block_key, make_document_version_id
 
 _HEADING = re.compile(
     r"^\s*(?:#{1,6}\s*)?(第\s*[一二三四五六七八九十百千万零〇两\d]+\s*[编章节款]\s*[^\n]*)\s*$"
@@ -33,6 +34,20 @@ def content_hash(text: str) -> str:
 def document_id(category: str, title: str) -> str:
     digest = hashlib.sha256(f"{category.strip()}\0{title.strip()}".encode("utf-8")).hexdigest()[:32]
     return f"doc_{digest}"
+
+
+def title_from_filename(filename: str) -> str:
+    """Keep the upload title rule in one place for merge/replacement classification."""
+    value = (filename or "untitled.txt").strip()
+    return value.rsplit(".", 1)[0].strip() or value
+
+
+def document_version_id(generation_id: str, doc_id: str, doc_hash: str) -> str:
+    return make_document_version_id(generation_id, doc_id, doc_hash)
+
+
+def generation_block_key(generation_id: str, block_id: str) -> str:
+    return make_block_key(generation_id, block_id)
 
 
 def _address(value: str) -> str:
@@ -65,9 +80,7 @@ def chunk_document(
 
     doc_id = document_id(category, title)
     doc_hash = content_hash(normalized_text)
-    version_id = "dv_" + hashlib.sha256(
-        f"{generation_id}\0{doc_id}\0{doc_hash}".encode("utf-8")
-    ).hexdigest()[:40]
+    version_id = document_version_id(generation_id, doc_id, doc_hash)
     segments = _segments(normalized_text)
     duplicates: dict[str, int] = {}
     fallback_duplicates: dict[str, int] = {}
@@ -90,9 +103,7 @@ def chunk_document(
             block_id += ":paragraph-" + _address(segment.paragraph_no)
         if segment.item_no:
             block_id += ":item-" + _address(segment.item_no)
-        block_key = f"{generation_id}:{block_id}"
-        if len(block_key) > 450:
-            block_key = f"{generation_id}:blk_{content_hash(block_id)[:48]}"
+        block_key = generation_block_key(generation_id, block_id)
         blocks.append(Block(
             block_key=block_key,
             generation_id=generation_id,
