@@ -13,6 +13,20 @@
 IF SCHEMA_ID('nexus') IS NULL EXEC('CREATE SCHEMA nexus');
 GO
 
+/* ==================== 迁移：移除 nexus 所有外键 ====================
+   设计：不靠数据库外键/级联，删除顺序与范围全部由应用代码保证
+        （覆盖=只删本次文档的块与出处，共享实体/边走 upsert 合并）。
+   幂等：已存在的外键全部 DROP；新库无外键则空操作。 */
+DECLARE @drop_fk nvarchar(max) = N'';
+SELECT @drop_fk = @drop_fk
+     + N'ALTER TABLE ' + QUOTENAME(SCHEMA_NAME(o.schema_id)) + N'.' + QUOTENAME(o.name)
+     + N' DROP CONSTRAINT ' + QUOTENAME(fk.name) + N';' + CHAR(10)
+FROM sys.foreign_keys fk
+JOIN sys.objects o ON fk.parent_object_id = o.object_id
+WHERE SCHEMA_NAME(o.schema_id) = 'nexus';
+IF LEN(@drop_fk) > 0 EXEC sp_executesql @drop_fk;
+GO
+
 /* ==================== Store / Collection 注册（§1.6） ==================== */
 
 -- 一个 store = 一条 azure_ai_search 凭据；块的物理落点（可多实例）
@@ -50,9 +64,7 @@ BEGIN
     CREATE TABLE nexus.collection_store (
         collection_id  nvarchar(64) NOT NULL,
         store_id       nvarchar(64) NOT NULL,
-        CONSTRAINT PK_collection_store PRIMARY KEY (collection_id, store_id),
-        CONSTRAINT FK_cs_collection FOREIGN KEY (collection_id) REFERENCES nexus.collection(collection_id) ON DELETE CASCADE,
-        CONSTRAINT FK_cs_store      FOREIGN KEY (store_id)      REFERENCES nexus.search_store(store_id)   ON DELETE CASCADE
+        CONSTRAINT PK_collection_store PRIMARY KEY (collection_id, store_id)
     );
     CREATE INDEX IX_cs_store ON nexus.collection_store(store_id);
 END;
@@ -72,8 +84,7 @@ BEGIN
         source_uri    nvarchar(1000) NULL,
         block_count   int            NOT NULL CONSTRAINT DF_doc_blocks DEFAULT 0,
         created_at    datetime2      NOT NULL CONSTRAINT DF_doc_created DEFAULT SYSUTCDATETIME(),
-        updated_at    datetime2      NOT NULL CONSTRAINT DF_doc_updated DEFAULT SYSUTCDATETIME(),
-        CONSTRAINT FK_doc_store FOREIGN KEY (store_id) REFERENCES nexus.search_store(store_id)
+        updated_at    datetime2      NOT NULL CONSTRAINT DF_doc_updated DEFAULT SYSUTCDATETIME()
     );
     CREATE INDEX IX_doc_store ON nexus.document(store_id);
 END;
@@ -105,8 +116,7 @@ BEGIN
     CREATE TABLE nexus.entity_alias (
         entity_id  nvarchar(200) NOT NULL,
         alias      nvarchar(400) NOT NULL,
-        CONSTRAINT PK_entity_alias PRIMARY KEY (entity_id, alias),
-        CONSTRAINT FK_alias_entity FOREIGN KEY (entity_id) REFERENCES nexus.entity(entity_id) ON DELETE CASCADE
+        CONSTRAINT PK_entity_alias PRIMARY KEY (entity_id, alias)
     );
     CREATE INDEX IX_alias_alias ON nexus.entity_alias(alias);  -- 别名反查规范实体
 END;
@@ -127,9 +137,7 @@ BEGIN
         source         nvarchar(10)   NOT NULL CONSTRAINT DF_edge_source DEFAULT 'llm',  -- seed | manual | llm
         locked         bit            NOT NULL CONSTRAINT DF_edge_locked DEFAULT 0,
         created_at     datetime2      NOT NULL CONSTRAINT DF_edge_created DEFAULT SYSUTCDATETIME(),
-        CONSTRAINT UQ_entity_edge UNIQUE (src_entity_id, type, dst_entity_id),
-        CONSTRAINT FK_edge_src FOREIGN KEY (src_entity_id) REFERENCES nexus.entity(entity_id),
-        CONSTRAINT FK_edge_dst FOREIGN KEY (dst_entity_id) REFERENCES nexus.entity(entity_id)
+        CONSTRAINT UQ_entity_edge UNIQUE (src_entity_id, type, dst_entity_id)
     );
     CREATE INDEX IX_edge_dst  ON nexus.entity_edge(dst_entity_id, type);  -- 反向遍历“谁要求我”
     CREATE INDEX IX_edge_type ON nexus.entity_edge(type);
@@ -150,9 +158,7 @@ BEGIN
         source       nvarchar(10)   NOT NULL CONSTRAINT DF_ev_source DEFAULT 'llm',
         locked       bit            NOT NULL CONSTRAINT DF_ev_locked DEFAULT 0,
         created_at   datetime2      NOT NULL CONSTRAINT DF_ev_created DEFAULT SYSUTCDATETIME(),
-        CONSTRAINT UQ_evidence UNIQUE (entity_id, fullname),
-        CONSTRAINT FK_ev_entity FOREIGN KEY (entity_id) REFERENCES nexus.entity(entity_id) ON DELETE CASCADE,
-        CONSTRAINT FK_ev_store  FOREIGN KEY (store_id)  REFERENCES nexus.search_store(store_id)
+        CONSTRAINT UQ_evidence UNIQUE (entity_id, fullname)
     );
     CREATE INDEX IX_ev_entity   ON nexus.evidence(entity_id);
     CREATE INDEX IX_ev_store    ON nexus.evidence(store_id);   -- “实体在不在某 collection” = evidence.store_id ∈ 集合
@@ -160,65 +166,108 @@ BEGIN
 END;
 GO
 
-/* ==================== 运行记录（对齐 bootstrap.DbRunRecorder） ==================== */
+/* ==================== 运行记录：Workflow DAG（索引 / 检索 两套） ====================
+   设计：
+     - 通用 Workflow 引擎跑 DAG；索引与检索各写各的两套表（run + node）。
+     - 结构（节点/边/sibling_group/phase/layer/depends_on）只存 *_run.dag（整图 JSON，
+       虚拟节点展开时整体重写）；node 表只存单节点运行态（懒插入：开始执行才建行）。
+     - token 用单个 JSON 列：{"input","output","cached","embedding"}（无 total，各维独立）。
+   ==================================================================================== */
 
-IF OBJECT_ID('nexus.run','U') IS NULL
+-- 弃用旧的通用 run 三件套（直接删，不迁移）
+IF OBJECT_ID('nexus.run_node','U')  IS NOT NULL DROP TABLE nexus.run_node;
+IF OBJECT_ID('nexus.run_stage','U') IS NOT NULL DROP TABLE nexus.run_stage;
+IF OBJECT_ID('nexus.run','U')       IS NOT NULL DROP TABLE nexus.run;
+GO
+
+-- ===== 索引运行 =====
+IF OBJECT_ID('nexus.index_run','U') IS NULL
 BEGIN
-    CREATE TABLE nexus.run (
-        run_id      nvarchar(64)  NOT NULL CONSTRAINT PK_run PRIMARY KEY,
-        question    nvarchar(max) NULL,
-        as_user     nvarchar(256) NULL,
-        context     nvarchar(max) NULL,   -- 可存 SQG / PEP JSON（§3.7 透明）
-        answer      nvarchar(max) NULL,
-        [state]     nvarchar(20)  NOT NULL CONSTRAINT DF_run_state DEFAULT 'running',
-        cost_ms     int           NOT NULL CONSTRAINT DF_run_cost DEFAULT 0,
-        created_at  datetime2     NOT NULL CONSTRAINT DF_run_created DEFAULT SYSUTCDATETIME(),
-        updated_at  datetime2     NOT NULL CONSTRAINT DF_run_updated DEFAULT SYSUTCDATETIME()
+    CREATE TABLE nexus.index_run (
+        run_id                nvarchar(64)  NOT NULL CONSTRAINT PK_index_run PRIMARY KEY,
+        as_user               nvarchar(256) NULL,
+        store_id              nvarchar(64)  NULL,          -- 块落点（无 FK）
+        category              nvarchar(100) NULL,          -- 进 fullname 的类别
+        llm_credential        nvarchar(200) NULL,
+        embedding_credential  nvarchar(200) NULL,
+        max_parallel          int           NOT NULL CONSTRAINT DF_irun_par   DEFAULT 8,
+        [state]               nvarchar(20)  NOT NULL CONSTRAINT DF_irun_state DEFAULT 'running', -- running|succeeded|failed
+        doc_count             int           NOT NULL CONSTRAINT DF_irun_doc   DEFAULT 0,
+        block_count           int           NOT NULL CONSTRAINT DF_irun_blk   DEFAULT 0,
+        node_count            int           NOT NULL CONSTRAINT DF_irun_node  DEFAULT 0,
+        tokens                nvarchar(1000) NULL,         -- JSON 聚合：{"input","output","cached","embedding"}
+        dag                   nvarchar(max) NULL,          -- 完整 DAG 结构 JSON（展开时整体重写）
+        error                 nvarchar(max) NULL,
+        cost_ms               int           NOT NULL CONSTRAINT DF_irun_cost  DEFAULT 0,
+        created_at            datetime2     NOT NULL CONSTRAINT DF_irun_created DEFAULT SYSUTCDATETIME(),
+        updated_at            datetime2     NOT NULL CONSTRAINT DF_irun_updated DEFAULT SYSUTCDATETIME()
     );
-    CREATE INDEX IX_run_user ON nexus.run(as_user, created_at);
+    CREATE INDEX IX_index_run_user ON nexus.index_run(as_user, created_at);
 END;
 GO
 
-IF OBJECT_ID('nexus.run_stage','U') IS NULL
+-- DAG 每节点运行态（结构见 index_run.dag；懒插入）
+IF OBJECT_ID('nexus.index_node','U') IS NULL
 BEGIN
-    CREATE TABLE nexus.run_stage (
-        run_id     nvarchar(64)  NOT NULL,
-        stage      nvarchar(50)  NOT NULL,   -- compile / optimize / execute ...
-        seq        int           NOT NULL CONSTRAINT DF_stage_seq DEFAULT 0,
-        [state]    nvarchar(20)  NOT NULL CONSTRAINT DF_stage_state DEFAULT 'running',
-        [input]    nvarchar(max) NULL,
-        [output]   nvarchar(max) NULL,
-        error      nvarchar(max) NULL,
-        logs       nvarchar(max) NULL,
-        cost_ms    int           NULL,
-        started_at datetime2     NOT NULL CONSTRAINT DF_stage_started DEFAULT SYSUTCDATETIME(),
-        ended_at   datetime2     NULL,
-        CONSTRAINT PK_run_stage PRIMARY KEY (run_id, stage),
-        CONSTRAINT FK_stage_run FOREIGN KEY (run_id) REFERENCES nexus.run(run_id) ON DELETE CASCADE
+    CREATE TABLE nexus.index_node (
+        run_id      nvarchar(64)  NOT NULL,
+        node_id     nvarchar(120) NOT NULL,     -- 对应 dag JSON 的 id（如 extract#37）
+        [state]     nvarchar(20)  NOT NULL CONSTRAINT DF_inode_state DEFAULT 'running', -- running|succeeded|failed|skipped
+        tokens      nvarchar(400) NULL,         -- JSON 本节点明细
+        [output]    nvarchar(max) NULL,
+        [value]     nvarchar(max) NULL,
+        error       nvarchar(max) NULL,
+        cost_ms     int           NULL,
+        started_at  datetime2     NULL,
+        ended_at    datetime2     NULL,
+        CONSTRAINT PK_index_node PRIMARY KEY (run_id, node_id)
     );
+    CREATE INDEX IX_index_node_run ON nexus.index_node(run_id, [state]);
 END;
 GO
 
-IF OBJECT_ID('nexus.run_node','U') IS NULL
+-- ===== 检索运行（Part 2 预留，结构对称，字段贴检索）=====
+IF OBJECT_ID('nexus.query_run','U') IS NULL
 BEGIN
-    CREATE TABLE nexus.run_node (
-        run_id     nvarchar(64)  NOT NULL,
-        node_id    nvarchar(64)  NOT NULL,   -- SQG 算子 id（op1/op2…）
-        [state]    nvarchar(20)  NOT NULL CONSTRAINT DF_node_state DEFAULT 'running',
-        resolver   nvarchar(100) NULL,       -- 绑定的物理算子
-        [call]     nvarchar(max) NULL,       -- 实际调用参数
-        [output]   nvarchar(max) NULL,       -- 回填：命中数 / fullname 列表
-        [value]    nvarchar(max) NULL,
-        [source]   nvarchar(50)  NULL,
-        trust      float         NULL,
-        error      nvarchar(max) NULL,
-        logs       nvarchar(max) NULL,
-        cost_ms    int           NULL,
-        started_at datetime2     NOT NULL CONSTRAINT DF_node_started DEFAULT SYSUTCDATETIME(),
-        ended_at   datetime2     NULL,
-        CONSTRAINT PK_run_node PRIMARY KEY (run_id, node_id),
-        CONSTRAINT FK_node_run FOREIGN KEY (run_id) REFERENCES nexus.run(run_id) ON DELETE CASCADE
+    CREATE TABLE nexus.query_run (
+        run_id       nvarchar(64)  NOT NULL CONSTRAINT PK_query_run PRIMARY KEY,
+        as_user      nvarchar(256) NULL,
+        question     nvarchar(max) NULL,
+        answer       nvarchar(max) NULL,
+        collection   nvarchar(64)  NULL,          -- 检索作用域
+        [state]      nvarchar(20)  NOT NULL CONSTRAINT DF_qrun_state DEFAULT 'running',
+        node_count   int           NOT NULL CONSTRAINT DF_qrun_node  DEFAULT 0,
+        tokens       nvarchar(1000) NULL,         -- JSON 聚合
+        dag          nvarchar(max) NULL,          -- SQG/算子图 DAG JSON
+        error        nvarchar(max) NULL,
+        cost_ms      int           NOT NULL CONSTRAINT DF_qrun_cost  DEFAULT 0,
+        created_at   datetime2     NOT NULL CONSTRAINT DF_qrun_created DEFAULT SYSUTCDATETIME(),
+        updated_at   datetime2     NOT NULL CONSTRAINT DF_qrun_updated DEFAULT SYSUTCDATETIME()
     );
+    CREATE INDEX IX_query_run_user ON nexus.query_run(as_user, created_at);
+END;
+GO
+
+-- 检索 DAG 节点运行态（比 index_node 多 source/trust/input，做出处与可信度）
+IF OBJECT_ID('nexus.query_node','U') IS NULL
+BEGIN
+    CREATE TABLE nexus.query_node (
+        run_id      nvarchar(64)  NOT NULL,
+        node_id     nvarchar(120) NOT NULL,
+        [state]     nvarchar(20)  NOT NULL CONSTRAINT DF_qnode_state DEFAULT 'running',
+        [source]    nvarchar(50)  NULL,          -- 产物来源/算子
+        trust       float         NULL,          -- 可信度
+        [input]     nvarchar(max) NULL,          -- 算子入参（数据，非 token）
+        [output]    nvarchar(max) NULL,
+        [value]     nvarchar(max) NULL,
+        tokens      nvarchar(400) NULL,          -- JSON 本节点明细
+        error       nvarchar(max) NULL,
+        cost_ms     int           NULL,
+        started_at  datetime2     NULL,
+        ended_at    datetime2     NULL,
+        CONSTRAINT PK_query_node PRIMARY KEY (run_id, node_id)
+    );
+    CREATE INDEX IX_query_node_run ON nexus.query_node(run_id, [state]);
 END;
 GO
 

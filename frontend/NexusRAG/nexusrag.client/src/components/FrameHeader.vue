@@ -56,6 +56,8 @@ const username = computed(() => authState.displayName || account.value)
 // 框架期只留通用入口；检索/运行历史等页面待引擎就绪后逐步接入
 const menuItems = [
   { id: 'ask', label: '检索台', icon: 'ChatDotRound' },
+  { id: 'index', label: '建立索引', icon: 'UploadFilled' },
+  { id: 'graph', label: '知识图谱', icon: 'Share' },
   { id: 'runs', label: '运行历史', icon: 'Histogram' },
   { id: 'credentials', label: '凭据', icon: 'Key' },
 ]

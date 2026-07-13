@@ -24,6 +24,9 @@ import { loadAuthState } from '../common/authState.js'
 // 页面懒加载（各自独立 chunk，导航到才拉取）
 const PlaceholderPage = defineAsyncComponent(() => import('./PlaceholderPage.vue'))
 const CredentialsPage = defineAsyncComponent(() => import('./CredentialsPage.vue'))
+const IndexCreatePanel = defineAsyncComponent(() => import('./index/IndexCreatePanel.vue'))
+const IndexRunsPage = defineAsyncComponent(() => import('./index/IndexRunsPage.vue'))
+const GraphExplorerPage = defineAsyncComponent(() => import('./graph/GraphExplorerPage.vue'))
 
 const activeMenu = ref('ask')
 
@@ -33,6 +36,9 @@ onMounted(() => {
 
 const componentMap: Record<string, Component> = {
   credentials: CredentialsPage,
+  index: IndexCreatePanel,
+  runs: IndexRunsPage,
+  graph: GraphExplorerPage,
 }
 
 const activeComponent = computed(() => componentMap[activeMenu.value] ?? PlaceholderPage)

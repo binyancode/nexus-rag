@@ -1,2 +1,2 @@
-# 检索引擎（Nexus Retrieval Engine）包占位。
-# 通用运行记录接口在 nexus/core/run_log.py；引擎实现（编译/优化/执行等）后续在此构建。
+# 检索引擎（Nexus Retrieval Engine）包。
+# 通用 DAG 执行器在 services/workflow；索引域(建立索引)在 nexus/index，用 workflow 跑 DAG。

@@ -45,6 +45,14 @@
                 "me.router": {
                     "prefix": "/me",
                     "tags": ["Auth"]
+                },
+                "index.router": {
+                    "prefix": "/index",
+                    "tags": ["Index"]
+                },
+                "graph.router": {
+                    "prefix": "/graph",
+                    "tags": ["Graph"]
                 }
             }
         }
