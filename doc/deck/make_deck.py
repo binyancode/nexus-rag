@@ -128,7 +128,7 @@ SLIDES = [
         "title": "查询五阶段",
         "section": "查询执行",
         "fn": diagrams.query_stages,
-        "notes": "五个阶段职责固定且各自持久化。\nLLM 只用于 SQG 理解和最终表达；PEP 与算子执行保持确定性。\n生成器没有 Repository，因此不能在回答时再次检索。",
+        "notes": "五个阶段职责固定且各自持久化。\nLLM 只用于 SQG 理解和最终表达；PEP 与算子执行保持确定性。\n每条 Evidence 由后端分配 citation_id；模型只选择单一 ID，后端解析身份并回填完整原始 Quote。",
     },
     {
         "key": "sqg_intents",

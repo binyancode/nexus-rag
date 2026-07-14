@@ -43,8 +43,21 @@ export interface QueryRunInfo {
 export interface QueryCitation {
   assertion_id?: string
   group?: string
+  group_label?: string | null
   block_key: string
   quote: string
+  document_id?: string
+  title?: string
+  category?: string
+  block_id?: string
+  article_no?: string
+  paragraph_no?: string
+  item_no?: string
+  heading_path?: string
+  ordinal?: number
+  assertion_kind?: string
+  predicate?: string
+  modality?: string
 }
 
 export interface QueryNodeState {
