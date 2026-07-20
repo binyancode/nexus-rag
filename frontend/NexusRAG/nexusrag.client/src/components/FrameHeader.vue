@@ -58,6 +58,7 @@ const menuItems = computed(() => [
   { id: 'index', label: '建立索引', icon: 'UploadFilled' },
   { id: 'graph', label: '知识图谱', icon: 'Share' },
   { id: 'runs', label: '运行历史', icon: 'Histogram' },
+  ...(authState.isAdmin ? [{ id: 'documents', label: '文档管理', icon: 'Document' }] : []),
   ...(authState.isAdmin ? [{ id: 'collections', label: 'Collection', icon: 'Files' }] : []),
   { id: 'credentials', label: '凭据', icon: 'Key' },
 ])

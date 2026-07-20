@@ -9,7 +9,7 @@ if str(APP) not in sys.path:
     sys.path.insert(0, str(APP))
 
 from nexus.indexing.chunker import chunk_document, content_hash, document_id
-from nexus.indexing.runner import classify_files
+from nexus.indexing.runner import classify_files, plan_document_deletion
 from nexus.infrastructure.assertion_repository import AssertionRepository
 from nexus.infrastructure.document_repository import DocumentRepository
 from nexus.infrastructure.search_adapter import GenerationSearchAdapter
@@ -173,6 +173,17 @@ class IncrementalGenerationTests(unittest.TestCase):
         self.assertEqual(retained, {doc_b})
         self.assertEqual([item["action"] for item in plan], ["replace", "unchanged", "add"])
 
+    def test_document_deletion_retains_unselected_documents(self):
+        base = {"doc_a": {}, "doc_b": {}, "doc_c": {}}
+        self.assertEqual(
+            plan_document_deletion(base, {"doc_b"}),
+            {"doc_a", "doc_c"},
+        )
+        with self.assertRaisesRegex(ValueError, "not present"):
+            plan_document_deletion(base, {"doc_missing"})
+        with self.assertRaisesRegex(ValueError, "every document"):
+            plan_document_deletion(base, set(base))
+
     def test_clone_documents_remaps_generation_local_ids(self):
         source_versions = [{
             "document_version_id": "dv_old",
@@ -247,6 +258,33 @@ class IncrementalGenerationTests(unittest.TestCase):
         self.assertEqual(evidence_rows[0][1], "new_keep")
         participant_rows = next(rows for sql, rows in db.many if "assertion_entity" in sql)
         self.assertEqual(participant_rows[0][4], 70)
+
+    def test_strict_deletion_drops_assertion_when_any_evidence_is_removed(self):
+        db = FactDb()
+        result = FakeAssertionRepository(db).clone_retained_facts(
+            "gen_old",
+            "gen_new",
+            {
+                "versions": {"dv_old_keep": "dv_new_keep"},
+                "blocks": {
+                    "old_keep": {
+                        "source_block_key": "old_keep",
+                        "target_block_key": "new_keep",
+                        "source_document_version_id": "dv_old_keep",
+                        "target_document_version_id": "dv_new_keep",
+                        "document_id": "doc_keep",
+                        "block_id": "doc_keep:article-1",
+                        "ordinal": 1,
+                    },
+                },
+            },
+            require_all_evidence=True,
+        )
+        self.assertEqual(result["assertions"], 0)
+        assertion_rows = next(rows for sql, rows in db.many if "legal_assertion" in sql)
+        evidence_rows = next(rows for sql, rows in db.many if "assertion_evidence" in sql)
+        self.assertEqual(assertion_rows, [])
+        self.assertEqual(evidence_rows, [])
 
     def test_clone_search_blocks_preserves_vector_and_remaps_scope(self):
         vector = [0.1, 0.2, 0.3]

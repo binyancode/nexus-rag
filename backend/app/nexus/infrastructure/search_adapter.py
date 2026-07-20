@@ -267,6 +267,43 @@ class GenerationSearchAdapter(SqlRepository):
         )
         return next((dict(row) for row in rows), None)
 
+    def list_document_blocks(
+        self,
+        store_id: str,
+        generation_id: str,
+        document_id: str,
+        *,
+        page: int = 1,
+        page_size: int = 20,
+        dimensions: int = 1536,
+    ) -> dict:
+        page = max(1, int(page))
+        page_size = max(1, min(100, int(page_size)))
+        rows = self._search_client(store_id, dimensions).search(
+            search_text="*",
+            filter=(
+                f"generation_id eq {_odata(generation_id)} and "
+                f"document_id eq {_odata(document_id)}"
+            ),
+            order_by=["ordinal asc"],
+            skip=(page - 1) * page_size,
+            top=page_size,
+            include_total_count=True,
+            select=[
+                "generation_id", "block_key", "block_id", "document_id",
+                "document_version_id", "category", "title", "text",
+                "parent_block_id", "article_no", "paragraph_no", "item_no",
+                "heading_path", "ordinal", "text_hash",
+            ],
+        )
+        items = [dict(row) for row in rows]
+        return {
+            "items": items,
+            "page": page,
+            "page_size": page_size,
+            "total": int(rows.get_count() or 0),
+        }
+
     def search(
         self,
         store_id: str,

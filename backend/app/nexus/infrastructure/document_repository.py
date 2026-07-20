@@ -8,6 +8,112 @@ from .base import SqlRepository, json_text
 
 
 class DocumentRepository(SqlRepository):
+    def generation_document_summaries(
+          self,
+          generation_id: str,
+          document_id: str | None = None,
+     ) -> list[dict]:
+          """Return one management row per document snapshot in a Generation."""
+          where = "dv.generation_id=?"
+          params: list[object] = [generation_id]
+          if document_id:
+                where += " AND dv.document_id=?"
+                params.append(document_id)
+          return self.db.execute_query(
+                f"""SELECT dv.document_id,dv.document_version_id,dv.title,dv.category,
+                              dv.source_uri,dv.content_hash,dv.block_count,dv.[state],
+                              dv.raw_metadata,dv.created_at,
+                              g.quality_state,g.activated_at,
+                              (SELECT COUNT_BIG(*) FROM nexus.block_manifest bm
+                                WHERE bm.document_version_id=dv.document_version_id) AS manifest_blocks,
+                              (SELECT COUNT_BIG(*) FROM nexus.block_manifest bm
+                                WHERE bm.document_version_id=dv.document_version_id
+                                  AND bm.extraction_state='quarantined') AS quarantined_blocks,
+                              (SELECT COUNT_BIG(*) FROM nexus.block_manifest bm
+                                WHERE bm.document_version_id=dv.document_version_id
+                                  AND bm.extraction_state='failed') AS failed_blocks,
+                              (SELECT COUNT_BIG(*) FROM nexus.block_manifest bm
+                                WHERE bm.document_version_id=dv.document_version_id
+                                  AND bm.search_state<>'written') AS unwritten_blocks,
+                              (SELECT COUNT_BIG(*) FROM nexus.entity_mention em
+                                WHERE em.document_version_id=dv.document_version_id) AS entity_mentions,
+                              (SELECT COUNT_BIG(*) FROM nexus.action_mention am
+                                WHERE am.document_version_id=dv.document_version_id) AS action_mentions,
+                              (SELECT COUNT_BIG(DISTINCT la.assertion_id)
+                                FROM nexus.assertion_evidence ae
+                                JOIN nexus.legal_assertion la ON la.assertion_id=ae.assertion_id
+                                JOIN nexus.block_manifest bm ON bm.block_key=ae.block_key
+                                WHERE la.generation_id=dv.generation_id
+                                  AND bm.document_version_id=dv.document_version_id
+                                  AND la.[state]='accepted') AS assertions,
+                              (SELECT COUNT_BIG(*)
+                                FROM nexus.assertion_evidence ae
+                                JOIN nexus.legal_assertion la ON la.assertion_id=ae.assertion_id
+                                JOIN nexus.block_manifest bm ON bm.block_key=ae.block_key
+                                WHERE la.generation_id=dv.generation_id
+                                  AND bm.document_version_id=dv.document_version_id) AS evidence_count,
+                              (SELECT COUNT_BIG(DISTINCT gs.edge_id)
+                                FROM nexus.graph_edge_support gs
+                                JOIN nexus.graph_edge ge ON ge.edge_id=gs.edge_id
+                                JOIN nexus.assertion_evidence ae ON ae.assertion_id=gs.assertion_id
+                                JOIN nexus.block_manifest bm ON bm.block_key=ae.block_key
+                                WHERE ge.generation_id=dv.generation_id
+                                  AND bm.document_version_id=dv.document_version_id) AS graph_edges
+                     FROM nexus.document_version dv
+                     JOIN nexus.index_generation g ON g.generation_id=dv.generation_id
+                     WHERE {where}
+                     ORDER BY dv.category,dv.title,dv.document_id""",
+                tuple(params),
+          )
+
+    def generation_quarantined_blocks(
+                self,
+                generation_id: str,
+                document_id: str,
+        ) -> list[dict]:
+                """Return active quarantined Blocks with the audit that originally isolated them."""
+                return self.db.execute_query(
+                        """SELECT current_block.block_key,current_block.block_id,
+                                            current_block.document_id,current_block.document_version_id,
+                                            current_block.article_no,current_block.paragraph_no,
+                                            current_block.item_no,current_block.heading_path,
+                                            current_block.ordinal,current_block.search_state,
+                                            audit.source_generation_id,audit.attempt_no,audit.attempt_state,
+                                              audit.validation_errors,audit.raw_output,audit.cost_ms,
+                                            (SELECT COUNT_BIG(*)
+                                             FROM nexus.block_manifest history_block
+                                             JOIN nexus.block_extraction_attempt history_attempt
+                                                 ON history_attempt.generation_id=history_block.generation_id
+                                                AND history_attempt.block_key=history_block.block_key
+                                             WHERE history_block.block_id=current_block.block_id) AS attempt_count
+                             FROM nexus.block_manifest current_block
+                             OUTER APPLY (
+                                     SELECT TOP 1 history_block.generation_id AS source_generation_id,
+                                                                history_attempt.attempt_no,
+                                                                history_attempt.[state] AS attempt_state,
+                                                                history_attempt.validation_errors,
+                                                                history_attempt.raw_output,
+                                                                history_attempt.cost_ms,
+                                                                history_generation.created_at
+                                     FROM nexus.block_manifest history_block
+                                     JOIN nexus.block_extraction_attempt history_attempt
+                                         ON history_attempt.generation_id=history_block.generation_id
+                                        AND history_attempt.block_key=history_block.block_key
+                                     JOIN nexus.index_generation history_generation
+                                         ON history_generation.generation_id=history_block.generation_id
+                                     WHERE history_block.block_id=current_block.block_id
+                                     ORDER BY
+                                         CASE history_attempt.[state] WHEN 'quarantined' THEN 0 ELSE 1 END,
+                                         history_generation.created_at DESC,
+                                         history_attempt.attempt_no DESC
+                             ) audit
+                             WHERE current_block.generation_id=?
+                                 AND current_block.document_id=?
+                                 AND current_block.extraction_state='quarantined'
+                             ORDER BY current_block.ordinal,current_block.block_key""",
+                        (generation_id, document_id),
+                )
+
     def generation_documents(self, generation_id: str | None) -> list[dict]:
         if not generation_id:
             return []

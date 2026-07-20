@@ -74,6 +74,21 @@ def cancel_run(run_id: str) -> bool:
     return True
 
 
+def plan_document_deletion(
+    base_documents: dict[str, dict],
+    deleted_document_ids: set[str],
+) -> set[str]:
+    if not deleted_document_ids:
+        raise ValueError("at least one document_id is required")
+    missing = sorted(deleted_document_ids - set(base_documents))
+    if missing:
+        raise ValueError("documents are not present in the base Generation: " + ", ".join(missing))
+    retained = set(base_documents) - deleted_document_ids
+    if not retained:
+        raise ValueError("deleting every document from a Store is not supported")
+    return retained
+
+
 def run_index(
     run_id: str,
     files: list[tuple[str, str, str]],
@@ -183,5 +198,108 @@ def run_index(
                 recorder.finish_run(run_id, state, str(exc), int((time.time() - started) * 1000))
             except Exception:  # noqa: BLE001
                 _logger.exception("failed to persist terminal index run state")
+    finally:
+        _RUNS.pop(run_id, None)
+
+
+def run_delete_documents(
+    run_id: str,
+    store_id: str,
+    base_generation_id: str,
+    deleted_document_ids: list[str],
+    max_parallel: int = 8,
+    as_user: str | None = None,
+    reason: str | None = None,
+) -> None:
+    """Publish a complete candidate that excludes selected active documents."""
+    started = time.time()
+    max_parallel = max(1, min(64, int(max_parallel or 8)))
+    generation_id = "gen_" + uuid.uuid4().hex
+    recorder: IndexRunRecorder | None = None
+    token = cancellation_token()
+    _RUNS[run_id] = token
+    try:
+        generations = services[GenerationRepository]
+        source = generations.generation(store_id, base_generation_id)
+        if source is None:
+            raise ValueError(f"base Generation does not exist for Store: {base_generation_id}")
+        documents = services[DocumentRepository]
+        base_documents = {
+            row["document_id"]: row
+            for row in documents.generation_documents(base_generation_id)
+        }
+        deleted = set(dict.fromkeys(deleted_document_ids))
+        retained = plan_document_deletion(base_documents, deleted)
+        deleted_snapshot = [
+            {
+                "document_id": document_id,
+                "title": base_documents[document_id]["title"],
+                "category": base_documents[document_id]["category"],
+                "content_hash": base_documents[document_id]["content_hash"],
+            }
+            for document_id in sorted(deleted)
+        ]
+        generations.create_run_and_generation(
+            run_id=run_id,
+            generation_id=generation_id,
+            as_user=as_user,
+            store_id=store_id,
+            category="DELETE",
+            llm_credential=source["llm_credential"],
+            embedding_credential=source["embedding_credential"],
+            max_parallel=max_parallel,
+            ontology_version=source["ontology_version"],
+            extractor_version=source["extractor_version"],
+            embedding_dimensions=int(source["embedding_dimensions"]),
+            input_snapshot={
+                "files": [],
+                "mode": "delete_documents",
+                "base_generation_id": base_generation_id,
+                "deleted_documents": deleted_snapshot,
+                "retained_document_ids": sorted(retained),
+                "reason": (reason or "").strip() or None,
+            },
+            base_generation_id=base_generation_id,
+        )
+        recorder = IndexRunRecorder(generations, generation_id)
+        search = services[GenerationSearchAdapter]
+        dimensions = int(source["embedding_dimensions"])
+        search.create_or_update(store_id, dimensions)
+        assertions = services[AssertionRepository]
+        shared = {
+            "files": [],
+            "base_generation_id": base_generation_id,
+            "retained_document_ids": retained,
+            "strict_retained_facts": True,
+            "category": "DELETE",
+            "store_id": store_id,
+            "generation_id": generation_id,
+            "dimensions": dimensions,
+            "embedder": None,
+            "generations": generations,
+            "documents": documents,
+            "assertions": assertions,
+            "quality": services[QualityRepository],
+            "search": search,
+            "extractor": None,
+            "resolution": ResolutionService(assertions),
+            "recorder": recorder,
+        }
+        build_index_workflow().run(
+            run_id,
+            build_seed(),
+            max_parallel=max_parallel,
+            recorder=recorder,
+            shared=shared,
+            cancel_token=token,
+        )
+    except Exception as exc:  # noqa: BLE001
+        _logger.exception(f"document deletion generation failed: {exc}")
+        if recorder is not None:
+            state = "cancelled" if token.is_cancelled else "failed"
+            try:
+                recorder.finish_run(run_id, state, str(exc), int((time.time() - started) * 1000))
+            except Exception:  # noqa: BLE001
+                _logger.exception("failed to persist terminal deletion run state")
     finally:
         _RUNS.pop(run_id, None)

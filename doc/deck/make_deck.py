@@ -86,7 +86,7 @@ SLIDES = [
         "title": "Generation 原子发布",
         "section": "事实与存储",
         "fn": diagrams.generation,
-        "notes": "用户可以有一份上传一份；同类别同标题表示替换。\n系统继承未变文档并组成完整候选代次，质量通过之前不可查。\n激活采用 Base Generation 比较并交换，避免并发运行互相覆盖。",
+        "notes": "用户可以有一份上传一份；同类别同标题表示替换。\n文档删除也通过候选代次表达：保留文档继承，删除文档及其事实不继承，再重建 Graph。\n激活采用 Base Generation 比较并交换，避免并发运行互相覆盖。",
     },
     {
         "key": "index_workflow",

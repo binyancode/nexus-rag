@@ -21,6 +21,7 @@ def op_seed_candidate(ctx: NodeContext) -> NodeResult:
         base_generation_id,
         ctx.res("generation_id"),
         clone_map,
+        require_all_evidence=bool(ctx.res("strict_retained_facts", False)),
     )
     copied = ctx.res("search").clone_blocks(
         ctx.res("store_id"),
@@ -88,6 +89,8 @@ def op_parse(ctx: NodeContext) -> NodeResult:
 def op_embed(ctx: NodeContext) -> NodeResult:
     parsed = ctx.dep("parse") or {}
     blocks = parsed.get("blocks") or []
+    if not blocks:
+        return NodeResult(output={"written": 0}, value="无新增原文块")
     embedder = ctx.res("embedder")
     search = ctx.res("search")
     documents = ctx.res("documents")

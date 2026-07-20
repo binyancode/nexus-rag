@@ -80,6 +80,7 @@ import {
 } from '../../backend/Index.js'
 
 const props = defineProps<{ runId: string }>()
+const emit = defineEmits<{ (e: 'terminal', state: string): void }>()
 
 const FOLD_THRESHOLD = 8
 const X_GAP = 250
@@ -121,7 +122,10 @@ async function poll() {
     const map: Record<string, IndexNodeState> = {}
     for (const n of data.nodes || []) map[n.node_id] = n
     nodeStates.value = map
-    if (['succeeded', 'failed', 'cancelled'].includes(runState.value)) stop()
+    if (['succeeded', 'failed', 'cancelled'].includes(runState.value)) {
+      stop()
+      emit('terminal', runState.value)
+    }
   } catch {
     /* 静默 */
   }

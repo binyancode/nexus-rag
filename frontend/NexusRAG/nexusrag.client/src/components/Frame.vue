@@ -26,6 +26,7 @@ const PlaceholderPage = defineAsyncComponent(() => import('./PlaceholderPage.vue
 const CredentialsPage = defineAsyncComponent(() => import('./CredentialsPage.vue'))
 const IndexCreatePanel = defineAsyncComponent(() => import('./index/IndexCreatePanel.vue'))
 const IndexRunsPage = defineAsyncComponent(() => import('./index/IndexRunsPage.vue'))
+const IndexDocumentsPage = defineAsyncComponent(() => import('./index/IndexDocumentsPage.vue'))
 const GraphExplorerPage = defineAsyncComponent(() => import('./graph/GraphExplorerPage.vue'))
 const QueryPage = defineAsyncComponent(() => import('./query/QueryPage.vue'))
 const CollectionManagementPage = defineAsyncComponent(() => import('./CollectionManagementPage.vue'))
@@ -41,6 +42,7 @@ const componentMap: Record<string, Component> = {
   collections: CollectionManagementPage,
   credentials: CredentialsPage,
   index: IndexCreatePanel,
+  documents: IndexDocumentsPage,
   runs: IndexRunsPage,
   graph: GraphExplorerPage,
 }

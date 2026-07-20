@@ -273,7 +273,7 @@ def schema_map():
 
 
 def generation():
-    o = [titleline("用户按文档新增或替换；系统继承未变文档组成完整候选代次，通过门禁后才切换 Active Generation。")]
+    o = [titleline("文档新增、替换或删除都形成完整候选代次；通过门禁后才切换 Active Generation。")]
     # active lane
     o.append(card(70, 188, 500, 350, accent=GREEN))
     o.append(text(94, 221, "线上可查询", 15, GREEN, "800"))
@@ -294,7 +294,7 @@ def generation():
             o.append(arrowc(xs[i] + 142, 287, xs[i + 1] - 4, 287, MUTE, 2))
     o.append(rect(674, 350, 492, 138, "#FFF8F1", rx=11, stroke="#F0D5BB", sw=1))
     o.append(text(698, 380, "继承与原子激活", 14, INK, "800"))
-    tx = ["B.base_generation_id → A", "未上传文档从 A 继承", "比较 A 后切换 Active → B"]
+    tx = ["B.base_generation_id → A", "未变文档继承；删除文档排除", "比较 A 后切换 Active → B"]
     for i, row in enumerate(tx):
         o.append(circle(704, 408 + i * 24, 3, fill=ORANGE))
         o.append(text(716, 413 + i * 24, row, 12, MUTE, "700", ff=MONO))

@@ -29,6 +29,7 @@ class AssertionRepository(SqlRepository):
         source_generation_id: str | None,
         target_generation_id: str,
         clone_map: dict,
+        require_all_evidence: bool = False,
     ) -> dict[str, int]:
         """Clone facts whose complete evidence set belongs to retained documents."""
         block_map: dict[str, dict] = clone_map.get("blocks") or {}
@@ -36,24 +37,14 @@ class AssertionRepository(SqlRepository):
         if not source_generation_id or not block_map:
             return {"aliases": 0, "entity_mentions": 0, "action_mentions": 0, "assertions": 0}
 
-        # Preserve generation-scoped aliases used by the retained facts.  Aliases are
-        # vocabulary metadata without direct document provenance, so carrying the base
-        # generation's set is the conservative behavior.
+        # Aliases have Generation but not document provenance. Normal merge builds retain
+        # the complete base set; strict deletion keeps only aliases directly evidenced by
+        # a retained mention, so deleted-only vocabulary does not leak forward.
         alias_rows = self.db.execute_query(
             """SELECT entity_id,alias,normalized_alias,source,confidence
                FROM nexus.entity_alias WHERE generation_id=?""",
             (source_generation_id,),
         )
-        self.db.execute_many(
-            """INSERT INTO nexus.entity_alias
-                   (entity_id,generation_id,alias,normalized_alias,source,confidence)
-               VALUES (?,?,?,?,?,?)""",
-            [(
-                row["entity_id"], target_generation_id, row["alias"],
-                row["normalized_alias"], row["source"], row.get("confidence"),
-            ) for row in alias_rows],
-        )
-
         source_entity_mentions = self.db.execute_query(
             """SELECT mention_id,document_version_id,block_key,local_id,mention_text,
                       canonical_name,entity_type,start_offset,end_offset,entity_id,
@@ -76,6 +67,24 @@ class AssertionRepository(SqlRepository):
                 row.get("confidence"), row.get("candidates"),
             ))
             entity_keys.append((int(row["mention_id"]), mapped["target_block_key"], row["local_id"]))
+        if require_all_evidence:
+            retained_alias_keys = {
+                (row[9], normalize_name(row[4]))
+                for row in entity_rows if row[9] and normalize_name(row[4])
+            }
+            alias_rows = [
+                row for row in alias_rows
+                if (row["entity_id"], row["normalized_alias"]) in retained_alias_keys
+            ]
+        self.db.execute_many(
+            """INSERT INTO nexus.entity_alias
+                   (entity_id,generation_id,alias,normalized_alias,source,confidence)
+               VALUES (?,?,?,?,?,?)""",
+            [(
+                row["entity_id"], target_generation_id, row["alias"],
+                row["normalized_alias"], row["source"], row.get("confidence"),
+            ) for row in alias_rows],
+        )
         self.bulk_insert_entity_mentions(entity_rows)
         target_mentions = self.mention_ids(target_generation_id)
         mention_map = {
@@ -132,9 +141,23 @@ class AssertionRepository(SqlRepository):
             (source_generation_id,),
         )
         retained_evidence: dict[str, list[dict]] = defaultdict(list)
+        all_evidence: dict[str, list[dict]] = defaultdict(list)
         for row in source_evidence:
+            all_evidence[row["assertion_id"]].append(row)
             if row["block_key"] in block_map:
                 retained_evidence[row["assertion_id"]].append(row)
+
+        participant_rows = self.db.execute_query(
+            """SELECT ae.assertion_id,ae.role,ae.ordinal,ae.entity_id,ae.mention_id,ae.value_text
+               FROM nexus.assertion_entity ae
+               JOIN nexus.legal_assertion la ON la.assertion_id=ae.assertion_id
+               WHERE la.generation_id=?
+               ORDER BY ae.assertion_id,ae.role,ae.ordinal""",
+            (source_generation_id,),
+        )
+        participants_by_assertion: dict[str, list[dict]] = defaultdict(list)
+        for participant in participant_rows:
+            participants_by_assertion[participant["assertion_id"]].append(participant)
 
         assertion_map: dict[str, str] = {}
         assertion_rows: list[tuple] = []
@@ -143,6 +166,18 @@ class AssertionRepository(SqlRepository):
         for row in source_assertions:
             evidence = retained_evidence.get(row["assertion_id"]) or []
             if not evidence:
+                continue
+            if require_all_evidence and len(evidence) != len(all_evidence[row["assertion_id"]]):
+                continue
+            if require_all_evidence and not any(
+                item["evidence_role"] == "primary" for item in evidence
+            ):
+                continue
+            if require_all_evidence and any(
+                participant.get("mention_id") is not None
+                and int(participant["mention_id"]) not in mention_map
+                for participant in participants_by_assertion[row["assertion_id"]]
+            ):
                 continue
             if row["assertion_hash"] in hashes:
                 raise ValueError(f"duplicate retained assertion hash: {row['assertion_hash']}")
@@ -169,14 +204,6 @@ class AssertionRepository(SqlRepository):
             assertion_rows,
         )
 
-        participant_rows = self.db.execute_query(
-            """SELECT ae.assertion_id,ae.role,ae.ordinal,ae.entity_id,ae.mention_id,ae.value_text
-               FROM nexus.assertion_entity ae
-               JOIN nexus.legal_assertion la ON la.assertion_id=ae.assertion_id
-               WHERE la.generation_id=?
-               ORDER BY ae.assertion_id,ae.role,ae.ordinal""",
-            (source_generation_id,),
-        )
         self.bulk_insert_assertion_entities([(
             assertion_map[row["assertion_id"]], row["role"], int(row["ordinal"]),
             row.get("entity_id"), mention_map.get(int(row["mention_id"])) if row.get("mention_id") else None,
@@ -193,7 +220,11 @@ class AssertionRepository(SqlRepository):
             for index, row in enumerate(evidence):
                 evidence_rows.append((
                     new_assertion_id, block_map[row["block_key"]]["target_block_key"],
-                    "primary" if index == primary_index else "supporting", row["quote"],
+                    (
+                        row["evidence_role"] if require_all_evidence
+                        else "primary" if index == primary_index else "supporting"
+                    ),
+                    row["quote"],
                     int(row["quote_start"]), int(row["quote_end"]), row["confidence"],
                 ))
         self.bulk_insert_evidence(evidence_rows)

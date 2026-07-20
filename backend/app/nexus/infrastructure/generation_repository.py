@@ -8,14 +8,32 @@ class GenerationRepository(SqlRepository):
     def active_generation(self, store_id: str) -> dict | None:
         rows = self.db.execute_query(
             """SELECT TOP 1 s.active_generation_id AS generation_id,
-                                            g.embedding_dimensions,g.ontology_version,g.extractor_version,
-                                            r.embedding_credential,g.[state]
+                      g.base_generation_id,g.embedding_dimensions,g.ontology_version,
+                      g.extractor_version,g.quality_state,g.document_count,g.block_count,
+                      g.entity_count,g.action_count,g.assertion_count,g.graph_edge_count,
+                      g.created_at,g.validated_at,g.activated_at,g.[state],
+                      r.llm_credential,r.embedding_credential
                FROM nexus.search_store s
                JOIN nexus.index_generation g
                  ON g.generation_id=s.active_generation_id AND g.store_id=s.store_id
-                             JOIN nexus.index_run r ON r.run_id=g.run_id
+               JOIN nexus.index_run r ON r.run_id=g.run_id
                WHERE s.store_id=? AND g.[state]='active'""",
             (store_id,),
+        )
+        return rows[0] if rows else None
+
+    def generation(self, store_id: str, generation_id: str) -> dict | None:
+        rows = self.db.execute_query(
+            """SELECT TOP 1 g.generation_id,g.base_generation_id,g.store_id,
+                      g.embedding_dimensions,g.ontology_version,g.extractor_version,
+                      g.quality_state,g.document_count,g.block_count,g.entity_count,
+                      g.action_count,g.assertion_count,g.graph_edge_count,g.created_at,
+                      g.validated_at,g.activated_at,g.retired_at,g.[state],
+                      r.llm_credential,r.embedding_credential
+               FROM nexus.index_generation g
+               JOIN nexus.index_run r ON r.run_id=g.run_id
+               WHERE g.store_id=? AND g.generation_id=?""",
+            (store_id, generation_id),
         )
         return rows[0] if rows else None
 

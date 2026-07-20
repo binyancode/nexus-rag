@@ -109,6 +109,123 @@ export interface StoreInfo {
   index_name: string | null
   kind: string
   is_default: boolean
+  active_generation_id?: string | null
+}
+
+export interface IndexedGenerationInfo {
+  generation_id: string
+  base_generation_id?: string | null
+  state: string
+  quality_state: string
+  document_count: number
+  block_count: number
+  entity_count: number
+  action_count: number
+  assertion_count: number
+  graph_edge_count: number
+  embedding_dimensions: number
+  created_at: string | null
+  validated_at: string | null
+  activated_at: string | null
+}
+
+export interface IndexedDocumentInfo {
+  document_id: string
+  document_version_id: string
+  title: string
+  category: string
+  source_uri: string | null
+  content_hash: string
+  block_count: number
+  state: string
+  raw_metadata: Record<string, unknown> | string | null
+  created_at: string | null
+  quality_state: string
+  activated_at: string | null
+  manifest_blocks: number
+  quarantined_blocks: number
+  failed_blocks: number
+  unwritten_blocks: number
+  entity_mentions: number
+  action_mentions: number
+  assertions: number
+  evidence_count: number
+  graph_edges: number
+  health: 'healthy' | 'warning' | 'degraded'
+}
+
+export interface IndexedDocumentsData {
+  store: StoreInfo
+  generation: IndexedGenerationInfo | null
+  documents: IndexedDocumentInfo[]
+}
+
+export interface IndexedBlockInfo {
+  block_key: string
+  block_id: string
+  document_id: string
+  document_version_id: string
+  category: string
+  title: string
+  text: string
+  parent_block_id: string | null
+  article_no: string | null
+  paragraph_no: string | null
+  item_no: string | null
+  heading_path: string | null
+  ordinal: number
+  text_hash: string
+}
+
+export interface IndexedBlocksPage {
+  generation_id: string
+  document_id: string
+  items: IndexedBlockInfo[]
+  page: number
+  page_size: number
+  total: number
+}
+
+export interface QuarantinedBlockInfo {
+  block_key: string
+  block_id: string
+  document_id: string
+  document_version_id: string
+  article_no: string | null
+  paragraph_no: string | null
+  item_no: string | null
+  heading_path: string | null
+  ordinal: number
+  search_state: string
+  source_generation_id: string | null
+  attempt_no: number
+  attempt_count: number
+  attempt_state: string | null
+  cost_ms: number
+  reason_code: string
+  reason: string
+  validation_messages: string[]
+  extracted_entities: Array<{
+    local_id: string | null
+    mention_text: string | null
+    canonical_name: string | null
+    entity_type: string | null
+  }>
+  extracted_actions: Array<{
+    local_id: string | null
+    canonical_text: string | null
+    verb: string | null
+    participants: Array<{ role: string | null; value: string | null }>
+  }>
+  candidate_assertions: Array<{
+    local_id: string | null
+    kind: string | null
+    predicate: string | null
+    modality: string | null
+    action: string | null
+    rejection_reasons: string[]
+  }>
+  text: string | null
 }
 
 export async function createIndex(payload: CreateIndexPayload): Promise<CreateIndexResult> {
@@ -137,6 +254,74 @@ export async function listStores(): Promise<StoreInfo[]> {
   const url = await backendUrl('index/stores')
   const res = await service.get(url, true, false)
   return res.stores ?? []
+}
+
+export async function listIndexedDocuments(storeId: string): Promise<IndexedDocumentsData> {
+  const url = await backendUrl(`index/stores/${encodeURIComponent(storeId)}/documents`)
+  return service.get(url, true, false)
+}
+
+export async function getIndexedDocument(
+  storeId: string,
+  documentId: string,
+): Promise<{ generation: IndexedGenerationInfo; document: IndexedDocumentInfo }> {
+  const url = await backendUrl(
+    `index/stores/${encodeURIComponent(storeId)}/documents/${encodeURIComponent(documentId)}`,
+  )
+  return service.get(url, true, false)
+}
+
+export async function listIndexedDocumentBlocks(
+  storeId: string,
+  documentId: string,
+  page = 1,
+  pageSize = 20,
+): Promise<IndexedBlocksPage> {
+  const query = new URLSearchParams({ page: String(page), page_size: String(pageSize) })
+  const url = await backendUrl(
+    `index/stores/${encodeURIComponent(storeId)}/documents/${encodeURIComponent(documentId)}/blocks?${query}`,
+  )
+  return service.get(url, true, false)
+}
+
+export async function listQuarantinedDocumentBlocks(
+  storeId: string,
+  documentId: string,
+): Promise<{
+  generation_id: string
+  document_id: string
+  items: QuarantinedBlockInfo[]
+  total: number
+}> {
+  const url = await backendUrl(
+    `index/stores/${encodeURIComponent(storeId)}/documents/${encodeURIComponent(documentId)}/quarantined-blocks`,
+  )
+  return service.get(url, true, false)
+}
+
+export async function deleteIndexedDocuments(payload: {
+  store_id: string
+  document_ids: string[]
+  expected_generation_id: string
+  reason?: string
+  max_parallel?: number
+}): Promise<{
+  run_id: string
+  store_id: string
+  base_generation_id: string
+  deleted_document_ids: string[]
+  retained_document_count: number
+  mode: 'delete_documents'
+}> {
+  const url = await backendUrl(
+    `index/stores/${encodeURIComponent(payload.store_id)}/document-deletion-runs`,
+  )
+  return service.post(url, {
+    document_ids: payload.document_ids,
+    expected_generation_id: payload.expected_generation_id,
+    reason: payload.reason || undefined,
+    max_parallel: payload.max_parallel ?? 8,
+  }, true, false)
 }
 
 export async function listSearchIndexes(credential: string): Promise<{ indexes: string[]; default: string | null }> {
