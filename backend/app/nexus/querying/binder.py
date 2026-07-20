@@ -24,11 +24,12 @@ class VocabularyBinder:
     def __init__(self, context: QueryContext):
         self.context = context
 
-    def entity(self, value: str) -> BoundNode:
+    def entity(self, value: str, entity_type: str | None = None) -> BoundNode:
         wanted = normalize_name(value)
         matches = [
             item for item in self.context.entities
             if wanted in {normalize_name(item.name), *(normalize_name(alias) for alias in item.aliases)}
+            and (entity_type is None or item.entity_type == entity_type)
         ]
         ids = {item.entity_id for item in matches}
         if len(ids) != 1:
@@ -48,10 +49,10 @@ class VocabularyBinder:
         item = next(item for item in matches if item.action_id in ids)
         return BoundNode(kind="action", node_id=item.action_id, label=item.canonical_text)
 
-    def node(self, value: str) -> BoundNode:
+    def node(self, value: str, entity_type: str | None = None) -> BoundNode:
         entity_error: Exception | None = None
         try:
-            return self.entity(value)
+            return self.entity(value, entity_type)
         except ValueError as exc:
             entity_error = exc
         try:

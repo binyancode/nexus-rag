@@ -89,7 +89,7 @@ class DeterministicPlanner:
             ))
             return self._with_ground(context, nodes, "action_subjects")
         if isinstance(intent, TraverseRelationIntent):
-            start = binder.node(intent.start)
+            start = binder.node(intent.start, intent.start_type)
             lookup_op = "EntityLookup" if start.kind == "entity" else "ActionLookup"
             lookup_output = "entity_set" if start.kind == "entity" else "action_set"
             lookup_params = (

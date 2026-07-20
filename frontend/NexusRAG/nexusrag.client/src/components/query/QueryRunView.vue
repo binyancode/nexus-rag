@@ -118,7 +118,7 @@ function start() {
   stop(); run.value=null; nodes.value=[]; stages.value=[]; selectedStageId.value=null
   detailMode.value='summary'; lastAutoStageId.value=null
   if (!props.runId) return
-  void poll(); timer=window.setInterval(poll,1200)
+  void poll(); timer=window.setInterval(poll,5000)
 }
 function stop() { if (timer) { window.clearInterval(timer); timer=undefined } }
 async function poll() {

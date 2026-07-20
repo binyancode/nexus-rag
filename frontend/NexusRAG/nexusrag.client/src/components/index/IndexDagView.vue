@@ -107,7 +107,7 @@ function start() {
   stop()
   run.value = null; dag.value = null; nodeStates.value = {}; selectedId.value = null; posOverride.value = {}
   if (!props.runId) return
-  timer = window.setInterval(poll, 1200)
+  timer = window.setInterval(poll, 5000)
   poll()
 }
 function stop() { if (timer) { window.clearInterval(timer); timer = undefined } }

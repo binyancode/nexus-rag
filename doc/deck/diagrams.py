@@ -458,7 +458,7 @@ def sqg_intents():
         ("find_subject_facts", "查主体的 Assertion / Action", BLUE),
         ("compare_subjects", "多主体交 / 差 / 并", ORANGE),
         ("find_action_subjects", "从行动反查主体", TEAL),
-        ("traverse_relation", "沿明确派生关系导航", GREEN),
+        ("traverse_relation", "自然语言关系 + 类型化起点", GREEN),
         ("compare_documents", "比较明确命名文档", PURPLE),
         ("semantic_evidence", "开放语义原文检索", NAVY),
     ]

@@ -135,7 +135,7 @@ SLIDES = [
         "title": "强类型 SQG",
         "section": "查询执行",
         "fn": diagrams.sqg_intents,
-        "notes": "SQG 只表达业务意图，不出现 Store、Generation、TopK 或物理算子。\n所有命名对象必须唯一绑定当前可见 Catalog。\n首次校验失败反馈重试一次，最终失败保留 Raw Invalid Output。",
+        "notes": "SQG 只表达业务意图，不出现 Store、Generation、TopK 或物理算子。\nGraph Relation 同时提供自然语言含义；同名节点必须用 start_type 绑定正确类型。\n可绑定的关系问题优先结构化遍历，不能降级成开放语义检索。",
     },
     {
         "key": "pep_templates",

@@ -44,6 +44,7 @@ class ReverseActionIntent(StrictModel):
 class TraverseRelationIntent(StrictModel):
     kind: Literal["traverse_relation"]
     start: str = Field(min_length=1, max_length=1000)
+    start_type: str | None = Field(default=None, min_length=1, max_length=30)
     relation: str = Field(min_length=1, max_length=50)
     inverse: bool = False
 
