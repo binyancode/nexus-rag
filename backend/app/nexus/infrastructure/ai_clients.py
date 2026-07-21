@@ -39,7 +39,7 @@ class ChatClient:
         self._client_lock = threading.Lock()
         self._local = threading.local()
 
-    def _usage(self) -> dict[str, int]:
+    def _usage(self) -> dict[str, Any]:
         value = getattr(self._local, "usage", None)
         if value is None:
             value = {"input": 0, "output": 0, "cached": 0}
@@ -49,16 +49,21 @@ class ChatClient:
     def reset_usage(self) -> None:
         self._local.usage = {"input": 0, "output": 0, "cached": 0}
 
-    def pop_usage(self) -> dict[str, int]:
+    def pop_usage(self) -> dict[str, Any]:
         usage = self._usage()
         self.reset_usage()
         return {key: value for key, value in usage.items() if value}
 
     def _add_usage(self, response: Any) -> None:
+        usage = self._usage()
+        choices = getattr(response, "choices", None) or []
+        if choices:
+            finish_reason = getattr(choices[0], "finish_reason", None)
+            if finish_reason is not None:
+                usage["finish_reason"] = str(finish_reason)
         response_usage = getattr(response, "usage", None)
         if response_usage is None:
             return
-        usage = self._usage()
         usage["input"] += int(getattr(response_usage, "prompt_tokens", 0) or 0)
         usage["output"] += int(getattr(response_usage, "completion_tokens", 0) or 0)
         details = getattr(response_usage, "prompt_tokens_details", None)
@@ -82,7 +87,7 @@ class ChatClient:
         self,
         system: str,
         user: str,
-        temperature: float = 0.0,
+        temperature: float | None = None,
         max_tokens: int | None = None,
     ) -> str:
         messages = []
@@ -92,8 +97,9 @@ class ChatClient:
         kwargs: dict[str, Any] = {
             "model": self._deployment,
             "messages": messages,
-            "temperature": temperature,
         }
+        if temperature is not None:
+            kwargs["temperature"] = float(temperature)
         if max_tokens is not None:
             kwargs["max_tokens"] = int(max_tokens)
         response = self._ensure_client().chat.completions.create(**kwargs)
@@ -104,19 +110,21 @@ class ChatClient:
         self,
         system: str,
         user: str,
-        temperature: float = 0.0,
+        temperature: float | None = None,
     ) -> dict | list:
         """Return parsed JSON; API and parsing failures are never converted to an empty object."""
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": user})
-        response = self._ensure_client().chat.completions.create(
-            model=self._deployment,
-            messages=messages,
-            temperature=temperature,
-            response_format={"type": "json_object"},
-        )
+        kwargs: dict[str, Any] = {
+            "model": self._deployment,
+            "messages": messages,
+            "response_format": {"type": "json_object"},
+        }
+        if temperature is not None:
+            kwargs["temperature"] = float(temperature)
+        response = self._ensure_client().chat.completions.create(**kwargs)
         self._add_usage(response)
         raw = response.choices[0].message.content
         if raw is None or not raw.strip():

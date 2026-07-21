@@ -33,6 +33,7 @@ class QueryInitializer:
         as_user: str | None,
         max_parallel: int,
         budgets: QueryBudgets,
+        temperature: float | None = None,
     ) -> QueryContext:
         question = (question or "").strip()
         if not question:
@@ -55,7 +56,7 @@ class QueryInitializer:
                 selected = visible[0]
                 selected_by = "only_visible"
             else:
-                selected = self._route(question, visible, chat)
+                selected = self._route(question, visible, chat, temperature=temperature)
                 selected_by = "semantic_router"
 
         scope = registry.freeze_scope(selected, selected_by)
@@ -110,7 +111,12 @@ class QueryInitializer:
         )
 
     @staticmethod
-    def _route(question: str, collections: list, chat: ChatClient):
+    def _route(
+        question: str,
+        collections: list,
+        chat: ChatClient,
+        temperature: float | None = None,
+    ):
         payload = {
             "question": question,
             "visible_collections": [
@@ -123,7 +129,14 @@ class QueryInitializer:
             ],
             "output": {"collection_id": "one supplied id", "reason": "short string"},
         }
-        raw = chat.complete_json(_COLLECTION_SYSTEM, json.dumps(payload, ensure_ascii=False))
+        if temperature is None:
+            raw = chat.complete_json(_COLLECTION_SYSTEM, json.dumps(payload, ensure_ascii=False))
+        else:
+            raw = chat.complete_json(
+                _COLLECTION_SYSTEM,
+                json.dumps(payload, ensure_ascii=False),
+                temperature=temperature,
+            )
         selected_id = raw.get("collection_id") if isinstance(raw, dict) else None
         selected = next((item for item in collections if item.collection_id == selected_id), None)
         if selected is None:

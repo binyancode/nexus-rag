@@ -47,24 +47,33 @@ class ExtractionResult:
 
 
 class AssertionExtractor:
-    def __init__(self, chat, attempts: ExtractionAttemptRepository):
+    def __init__(
+        self,
+        chat,
+        attempts: ExtractionAttemptRepository,
+        temperature: float | None = None,
+    ):
         self.chat = chat
         self.attempts = attempts
+        self.temperature = temperature
 
     def extract(self, run_id: str, generation_id: str, block: Block) -> ExtractionResult:
         feedback: list[dict] | None = None
-        total_tokens: dict[str, int] = {}
+        total_tokens: dict[str, Any] = {}
         for attempt_no in (1, 2):
             self.chat.reset_usage()
             started = time.time()
             raw: Any = None
             raw_text: str | None = None
             try:
-                raw = self.chat.complete_json(
-                    SYSTEM_PROMPT,
-                    user_prompt(block, feedback),
-                    temperature=0.0,
-                )
+                if self.temperature is None:
+                    raw = self.chat.complete_json(SYSTEM_PROMPT, user_prompt(block, feedback))
+                else:
+                    raw = self.chat.complete_json(
+                        SYSTEM_PROMPT,
+                        user_prompt(block, feedback),
+                        temperature=self.temperature,
+                    )
                 raw_text = json.dumps(raw, ensure_ascii=False, default=str)
                 extraction = self._validate(raw, block)
                 tokens = self.chat.pop_usage()
@@ -580,6 +589,9 @@ class AssertionExtractor:
         return [{"type": exc.__class__.__name__, "message": str(exc)}]
 
     @staticmethod
-    def _merge_tokens(total: dict[str, int], current: dict | None) -> None:
+    def _merge_tokens(total: dict[str, Any], current: dict | None) -> None:
         for key, value in (current or {}).items():
-            total[key] = total.get(key, 0) + int(value or 0)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                total[key] = int(total.get(key, 0) or 0) + int(value)
+            else:
+                total[key] = value

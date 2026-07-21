@@ -98,6 +98,7 @@ def run_index(
     category: str,
     max_parallel: int = 8,
     as_user: str | None = None,
+    llm_temperature: float | None = None,
 ) -> None:
     """Build a new full generation; legacy overwrite/auto-attach semantics do not apply."""
     started = time.time()
@@ -154,6 +155,7 @@ def run_index(
                 "mode": "merge_documents",
                 "base_generation_id": base_generation_id,
                 "retained_document_ids": sorted(retained_document_ids),
+                "llm_temperature": llm_temperature,
             },
             base_generation_id=base_generation_id,
         )
@@ -178,7 +180,7 @@ def run_index(
             "assertions": assertions,
             "quality": services[QualityRepository],
             "search": search,
-            "extractor": AssertionExtractor(chat, attempts),
+            "extractor": AssertionExtractor(chat, attempts, temperature=llm_temperature),
             "resolution": ResolutionService(assertions),
             "recorder": recorder,
         }

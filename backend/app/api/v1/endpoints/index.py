@@ -59,6 +59,17 @@ def _forbidden() -> JSONResponse:
     )
 
 
+def _optional_temperature(value) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
+    number = float(value)
+    if not 0.0 <= number <= 2.0:
+        raise ValueError("temperature 必须在 0 到 2 之间")
+    return number
+
+
 def _document_payload(row: dict) -> dict:
     item = dict(row)
     raw_metadata = item.get("raw_metadata")
@@ -523,6 +534,7 @@ async def create_index(request: Request, reg: StoreCollectionRepository = None):
         category         : 必填（进入文档与 Block 元数据）
         默认语义：按 category + 文件标题新增或替换文档；未上传文档继承到新代次
         auto_attach / overwrite : 兼容字段，已忽略
+        temperature      : 可选；留空则不传给 LLM，使用模型默认值
         max_parallel     : int（DAG 并行度，默认 8）
     """
     body = await request.json()
@@ -535,6 +547,10 @@ async def create_index(request: Request, reg: StoreCollectionRepository = None):
         max_parallel = int(body.get("max_parallel", 8))
     except (TypeError, ValueError):
         max_parallel = 8
+    try:
+        llm_temperature = _optional_temperature(body.get("temperature"))
+    except (TypeError, ValueError) as exc:
+        return {"state": "error", "message": f"temperature 参数不合法: {exc}"}
     max_parallel = max(1, min(64, max_parallel))
 
     if not (llm and emb and store_credential and category and index_name):
@@ -594,6 +610,7 @@ async def create_index(request: Request, reg: StoreCollectionRepository = None):
             "category": category,
             "max_parallel": max_parallel,
             "as_user": as_user,
+            "llm_temperature": llm_temperature,
         },
         daemon=True,
     ).start()

@@ -14,6 +14,7 @@ export interface CreateQueryPayload {
   collection?: string
   llm_credential: string
   embedding_credential: string
+  temperature?: number
   max_parallel?: number
   budgets?: { max_entities?: number; max_blocks?: number; max_tokens?: number }
 }

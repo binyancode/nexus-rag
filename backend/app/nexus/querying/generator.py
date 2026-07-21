@@ -38,6 +38,7 @@ class AnswerGenerator:
         facts: OperatorResult,
         evidence: OperatorResult,
         chat: ChatClient,
+        temperature: float | None = None,
     ) -> OperatorResult:
         if not evidence.items:
             return OperatorResult(
@@ -48,7 +49,14 @@ class AnswerGenerator:
             )
         payload = self._payload(context, facts, evidence)
         try:
-            raw = chat.complete_json(_SYSTEM, json.dumps(payload, ensure_ascii=False, default=str))
+            if temperature is None:
+                raw = chat.complete_json(_SYSTEM, json.dumps(payload, ensure_ascii=False, default=str))
+            else:
+                raw = chat.complete_json(
+                    _SYSTEM,
+                    json.dumps(payload, ensure_ascii=False, default=str),
+                    temperature=temperature,
+                )
         except JsonCompletionError as exc:
             raise AnswerGenerationError(str(exc), exc.raw_output) from exc
         if not isinstance(raw, dict) or set(raw) != {"answer", "citations"}:

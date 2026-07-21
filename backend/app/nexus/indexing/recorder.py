@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 from nexus.infrastructure import GenerationRepository
 from services.workflow import WorkflowRecorder
@@ -24,7 +25,7 @@ class IndexRunRecorder(WorkflowRecorder):
     def __init__(self, generations: GenerationRepository, generation_id: str):
         self.generations = generations
         self.generation_id = generation_id
-        self._tokens: dict[str, int] = {}
+        self._tokens: dict[str, Any] = {}
         self._nodes: dict[str, dict] = {}
         self._errors: list[str] = []
 
@@ -115,7 +116,10 @@ class IndexRunRecorder(WorkflowRecorder):
 
     def bump_tokens(self, run_id: str, tokens: dict) -> None:
         for key, value in (tokens or {}).items():
-            self._tokens[key] = self._tokens.get(key, 0) + int(value or 0)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                self._tokens[key] = int(self._tokens.get(key, 0) or 0) + int(value)
+            else:
+                self._tokens[key] = value
         self.db.execute_non_query(
             "UPDATE nexus.index_run SET tokens=?, updated_at=SYSUTCDATETIME() WHERE run_id=?",
             (_json(self._tokens), run_id),

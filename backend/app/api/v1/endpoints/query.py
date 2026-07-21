@@ -14,6 +14,17 @@ from nexus.querying import cancel_query, run_query
 router = APIRouter()
 
 
+def _optional_temperature(value) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
+    number = float(value)
+    if not 0.0 <= number <= 2.0:
+        raise ValueError("temperature 必须在 0 到 2 之间")
+    return number
+
+
 @router.get("/collections")
 @api_handler.log()
 @api_handler.auth()
@@ -50,6 +61,7 @@ async def create_query(request: Request):
     try:
         max_parallel = max(1, min(64, int(body.get("max_parallel") or 8)))
         budgets = QueryBudgets.model_validate(body.get("budgets") or {})
+        llm_temperature = _optional_temperature(body.get("temperature"))
     except Exception as exc:
         return {"state": "error", "message": f"查询参数不合法: {exc}"}
 
@@ -58,7 +70,17 @@ async def create_query(request: Request):
     run_id = uuid.uuid4().hex
     threading.Thread(
         target=run_query,
-        args=(run_id, question, llm, embedding, collection, max_parallel, as_user, budgets),
+        kwargs={
+            "run_id": run_id,
+            "question": question,
+            "llm_credential": llm,
+            "embedding_credential": embedding,
+            "collection_id": collection,
+            "max_parallel": max_parallel,
+            "as_user": as_user,
+            "budgets": budgets,
+            "llm_temperature": llm_temperature,
+        },
         daemon=True,
     ).start()
     return {"run_id": run_id}

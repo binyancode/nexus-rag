@@ -48,7 +48,12 @@ class CompilerError(ValueError):
 
 
 class SQGCompiler:
-    def compile(self, context: QueryContext, chat: ChatClient) -> SQG:
+    def compile(
+        self,
+        context: QueryContext,
+        chat: ChatClient,
+        temperature: float | None = None,
+    ) -> SQG:
         request = self._request(context)
         raw: Any = None
         feedback: str | None = None
@@ -60,7 +65,14 @@ class SQGCompiler:
                 "repair": "Return a complete corrected SQG object; do not remove named user constraints.",
             }
             try:
-                raw = chat.complete_json(_SYSTEM, json.dumps(payload, ensure_ascii=False))
+                if temperature is None:
+                    raw = chat.complete_json(_SYSTEM, json.dumps(payload, ensure_ascii=False))
+                else:
+                    raw = chat.complete_json(
+                        _SYSTEM,
+                        json.dumps(payload, ensure_ascii=False),
+                        temperature=temperature,
+                    )
                 sqg = SQG.model_validate(raw, strict=True)
                 if sqg.question != context.question:
                     raise ValueError("SQG.question must exactly preserve the user question")

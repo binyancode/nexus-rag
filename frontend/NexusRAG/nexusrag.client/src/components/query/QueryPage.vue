@@ -36,6 +36,11 @@
           <div class="field"><label>并行度</label><el-input-number v-model="form.max_parallel" :min="1" :max="64" /></div>
           <div class="field"><label>最多依据块</label><el-input-number v-model="form.max_blocks" :min="1" :max="100" /></div>
         </div>
+        <div class="field">
+          <label>Temperature（可选）</label>
+          <el-input v-model="form.temperature" placeholder="留空则不传；例如 0.2" />
+          <span class="hint">不设置时后端不会传 temperature，直接使用模型默认值。</span>
+        </div>
         <el-button type="primary" :loading="submitting" :disabled="!canSubmit" @click="submit">开始查询</el-button>
       </el-card>
 
@@ -62,7 +67,7 @@ const runId = ref('')
 const historyPanel = ref<InstanceType<typeof QueryHistoryPanel> | null>(null)
 const form = reactive({
   question: '', collection: '', llm_credential: '', embedding_credential: '',
-  max_parallel: 8, max_blocks: 30,
+  max_parallel: 8, max_blocks: 30, temperature: '',
 })
 const llmCreds = computed(() => credentials.value.filter(x => x.credential_type === 'azure_openai'))
 const embedCreds = computed(() => credentials.value.filter(x => x.credential_type === 'azure_openai_embedding'))
@@ -86,18 +91,39 @@ onMounted(async () => {
 })
 
 async function submit() {
+  let temperature: number | undefined
+  try {
+    temperature = parseOptionalTemperature(form.temperature)
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : 'temperature 参数不合法')
+    return
+  }
   submitting.value = true
   try {
     const result = await createQuery({
       question: form.question.trim(), collection: form.collection || undefined,
       llm_credential: form.llm_credential, embedding_credential: form.embedding_credential,
-      max_parallel: form.max_parallel, budgets: { max_blocks: form.max_blocks },
+      temperature,
+      max_parallel: form.max_parallel,
+      budgets: { max_blocks: form.max_blocks },
     })
     runId.value = result.run_id
     ElMessage.success('查询已提交')
     window.setTimeout(() => historyPanel.value?.reload(), 600)
   } catch { /* 拦截器已提示 */ }
   finally { submitting.value = false }
+}
+
+function parseOptionalTemperature(raw: string): number | undefined {
+  const value = raw.trim()
+  if (!value) {
+    return undefined
+  }
+  const number = Number(value)
+  if (!Number.isFinite(number) || number < 0 || number > 2) {
+    throw new Error('Temperature 需在 0 到 2 之间')
+  }
+  return number
 }
 function openHistory(run: QueryRunListItem) {
   runId.value=run.run_id

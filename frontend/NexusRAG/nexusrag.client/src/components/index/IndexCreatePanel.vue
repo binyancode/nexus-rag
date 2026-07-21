@@ -77,6 +77,11 @@
 
         <div class="sec-t">索引选项</div>
         <div class="fld">
+          <label>Temperature（可选）</label>
+          <el-input v-model="form.temperature" placeholder="留空则不传；例如 0.2" style="width:100%" />
+          <div class="hint">不设置时后端不会传 temperature，直接使用模型默认值。</div>
+        </div>
+        <div class="fld">
           <label>默认类别<span class="req">*</span></label>
           <el-select
             v-model="form.category"
@@ -136,7 +141,7 @@ const searchCreds = computed(() => creds.value.filter(c => c.credential_type ===
 
 const form = reactive({
   llm_credential: '', embedding_credential: '', store_credential: '',
-  index_name: '', category: '', max_parallel: 8,
+  index_name: '', category: '', max_parallel: 8, temperature: '',
 })
 
 const fileList = ref<any[]>([])
@@ -195,12 +200,20 @@ function onFileRemove(file: any) {
 }
 
 async function submit() {
+  let temperature: number | undefined
+  try {
+    temperature = parseOptionalTemperature(form.temperature)
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : 'temperature 参数不合法')
+    return
+  }
   submitting.value = true
   try {
     const res = await createIndex({
       files: files.value,
       llm_credential: form.llm_credential,
       embedding_credential: form.embedding_credential,
+      temperature,
       store_credential: form.store_credential,
       index_name: form.index_name || undefined,
       category: form.category.trim(),
@@ -213,6 +226,18 @@ async function submit() {
   } finally {
     submitting.value = false
   }
+}
+
+function parseOptionalTemperature(raw: string): number | undefined {
+  const value = raw.trim()
+  if (!value) {
+    return undefined
+  }
+  const number = Number(value)
+  if (!Number.isFinite(number) || number < 0 || number > 2) {
+    throw new Error('Temperature 需在 0 到 2 之间')
+  }
+  return number
 }
 </script>
 

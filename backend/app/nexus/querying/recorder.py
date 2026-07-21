@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 from core.services import services
 from services.sql_db import sql_db
@@ -28,8 +29,8 @@ def _json(value) -> str | None:
 
 class QueryRunRecorder(WorkflowRecorder):
     def __init__(self):
-        self._tokens: dict[str, int] = {}
-        self._stage_tokens: dict[str, int] = {}
+        self._tokens: dict[str, Any] = {}
+        self._stage_tokens: dict[str, Any] = {}
         self._node_ops: dict[str, str] = {}
         self._node_inputs: dict[str, dict] = {}
 
@@ -196,9 +197,13 @@ class QueryRunRecorder(WorkflowRecorder):
 
     def bump_tokens(self, run_id: str, tokens: dict) -> None:
         for key, value in (tokens or {}).items():
-            amount = int(value or 0)
-            self._tokens[key] = self._tokens.get(key, 0) + amount
-            self._stage_tokens[key] = self._stage_tokens.get(key, 0) + amount
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                amount = int(value)
+                self._tokens[key] = int(self._tokens.get(key, 0) or 0) + amount
+                self._stage_tokens[key] = int(self._stage_tokens.get(key, 0) or 0) + amount
+            else:
+                self._tokens[key] = value
+                self._stage_tokens[key] = value
         self.db.execute_non_query(
             "UPDATE nexus.query_run SET tokens=?,updated_at=SYSUTCDATETIME() WHERE run_id=?",
             (_json(self._tokens), run_id),

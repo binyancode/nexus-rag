@@ -13,6 +13,7 @@ export interface CreateIndexPayload {
   files: IndexFile[]
   llm_credential: string
   embedding_credential: string
+  temperature?: number
   store_credential: string
   index_name?: string
   category: string

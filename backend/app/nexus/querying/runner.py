@@ -36,6 +36,7 @@ def run_query(
     max_parallel: int = 8,
     as_user: str | None = None,
     budgets: QueryBudgets | None = None,
+    llm_temperature: float | None = None,
 ) -> None:
     budgets = budgets or QueryBudgets()
     max_parallel = max(1, min(64, int(max_parallel or 8)))
@@ -78,6 +79,7 @@ def run_query(
             as_user=as_user,
             max_parallel=max_parallel,
             budgets=budgets,
+            temperature=llm_temperature,
         )
         recorder.bump_tokens(run_id, chat.pop_usage())
         recorder.set_scope(context)
@@ -99,7 +101,7 @@ def run_query(
             },
         })
         chat.reset_usage()
-        sqg = SQGCompiler().compile(context, chat)
+        sqg = SQGCompiler().compile(context, chat, temperature=llm_temperature)
         recorder.bump_tokens(run_id, chat.pop_usage())
         recorder.finish_stage(run_id, "compiler", sqg.model_dump(mode="json"), _elapsed_ms(stage_started))
         token.raise_if_cancelled()
@@ -138,7 +140,7 @@ def run_query(
         recorder.start_stage(run_id, "generator", coordinator_output)
         chat.reset_usage()
         answer = AnswerGenerator().generate(
-            context, execution["facts"], execution["evidence"], chat,
+            context, execution["facts"], execution["evidence"], chat, llm_temperature,
         )
         recorder.bump_tokens(run_id, chat.pop_usage())
         recorder.set_answer(run_id, answer)
